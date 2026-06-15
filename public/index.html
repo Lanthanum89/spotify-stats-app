@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SoundTracks | Your Personal Spotify Insights</title>
+  <!-- Technical monospace for chrome and a restrained sans-serif for copy -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  
+  <!-- BACKGROUND GRADIENT BLOB AESTHETICS -->
+  <div class="glow-container">
+    <div class="glow-blur glow-1"></div>
+    <div class="glow-blur glow-2"></div>
+  </div>
+
+  <!-- AUTHENTICATION CONTAINER (LOGIN SCREEN) -->
+  <div id="login-container" class="auth-card hidden">
+    <div class="auth-header">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" width="40" height="40">
+          <circle cx="12" cy="12" r="10" fill="var(--accent-color)"/>
+          <path d="M16.6 9.9c-.3-.5-1-.6-1.5-.3-2.1 1.3-4.7 1.6-7.8.9-.6-.1-1.2.3-1.3.9-.1.6.3 1.2.9 1.3 3.4.8 6.4.4 8.9-1.2.5-.3.6-1 .3-1.6zm1.3-2.3c-.4-.6-1.2-.8-1.8-.4-2.4 1.5-6.1 1.9-8.9 1-.7-.2-1.5.2-1.7.9-.2.7.2 1.5.9 1.7 3.3 1 7.4.5 10.1-1.2.6-.4.8-1.2.4-2zm.1-2.4C14.7 3.1 9.3 2.9 6.2 3.8c-.9.3-1.4 1.2-1.1 2.1.3.9 1.2 1.4 2.1 1.1 2.6-.8 7.4-.6 10.4 1.2.8.5 1.8.2 2.3-.6.5-.8.2-1.8-.6-2.2z" fill="#ffffff"/>
+        </svg>
+      </div>
+      <h1 class="auth-title">SoundTracks</h1>
+      <p class="auth-subtitle">A precise view of your listening history, top tracks, artists, and genre distribution.</p>
+    </div>
+    <div class="auth-body">
+      <a href="/login" id="btn-login" class="btn btn-primary btn-login">
+        <span>Connect with Spotify</span>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+          <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.565.387-.86.207-2.377-1.454-5.37-1.783-8.894-.982-.336.077-.67-.137-.747-.473-.077-.337.137-.67.473-.748 3.854-.88 7.15-.502 9.822 1.135.296.18.387.565.206.86zm1.223-2.72c-.227.367-.707.487-1.074.26-2.72-1.672-6.866-2.155-10.073-1.182-.413.125-.847-.107-.972-.52-.125-.413.108-.847.52-.972 3.666-1.112 8.225-.573 11.338 1.34.368.226.488.706.26 1.074zm.107-2.825C14.502 8.84 9.17 8.663 6.074 9.603c-.522.158-1.074-.142-1.233-.664-.158-.522.142-1.074.664-1.233 3.563-1.082 9.44-.88 13.34 1.436.47.278.623.882.345 1.352-.278.47-.882.622-1.352.345z"/>
+        </svg>
+      </a>
+    </div>
+    <div id="auth-error-msg" class="error-banner hidden"></div>
+  </div>
+
+  <!-- LOADING SPINNER -->
+  <div id="loading-container" class="spinner-container">
+    <div class="spinner"></div>
+    <p class="loading-text">Tuning in to Spotify...</p>
+  </div>
+
+  <!-- MAIN APP CONTAINER (DASHBOARD) -->
+  <div id="app-container" class="dashboard-layout hidden">
+    
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24" width="32" height="32" fill="var(--accent-color)">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.59 14.42c-.18.29-.57.39-.86.21-2.38-1.45-5.37-1.78-8.89-.98-.34.08-.67-.14-.75-.47-.08-.34.14-.67.47-.75 3.85-.88 7.15-.5 9.82 1.13.3.18.39.57.21.86zm1.22-2.72c-.23.37-.71.49-1.07.26-2.72-1.67-6.87-2.15-10.07-1.18-.41.13-.85-.11-.97-.52-.13-.41.11-.85.52-.97 3.67-1.11 8.23-.57 11.34 1.34.37.23.49.71.28 1.07zm.11-2.83C14.5 8.84 9.17 8.66 6.07 9.6c-.52.16-1.07-.14-1.23-.66-.16-.52.14-1.07.66-1.23 3.56-1.08 9.44-.88 13.34 1.44.47.28.62.88.35 1.35-.28.47-.88.62-1.35.35z"/>
+          </svg>
+        </div>
+        <span class="brand-text">SoundTracks</span>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="overview">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+          <span>Overview</span>
+        </button>
+        <button class="nav-item" data-tab="tracks">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+          <span>Top Tracks</span>
+        </button>
+        <button class="nav-item" data-tab="artists">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          <span>Top Artists</span>
+        </button>
+        <button class="nav-item" data-tab="analysis">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>
+          <span>Analysis</span>
+        </button>
+        <button class="nav-item" data-tab="recent">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          <span>Recent</span>
+        </button>
+      </nav>
+
+      <!-- PROFILE FOOTER -->
+      <div class="sidebar-footer">
+        <div class="user-badge">
+          <img id="user-avatar" src="https://via.placeholder.com/40" alt="Avatar" class="avatar">
+          <div class="user-info">
+            <span id="user-name" class="name">User Name</span>
+            <span id="user-account-type" class="account-type">Premium</span>
+          </div>
+        </div>
+        <a href="/logout" id="btn-logout" class="btn-logout" title="Log out">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        </a>
+      </div>
+    </aside>
+
+    <!-- MAIN DASHBOARD CONTENT -->
+    <main class="main-content">
+      
+      <!-- TOP NAVIGATION BAR -->
+      <header class="content-header">
+        <h2 id="current-tab-title">Overview</h2>
+        
+        <div class="header-controls">
+          <!-- VIEW TOGGLER (shown for tracks & recent) -->
+          <div id="view-toggle-container" class="view-toggle hidden">
+            <button class="view-toggle-btn active" data-view="grid" title="Grid View">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            </button>
+            <button class="view-toggle-btn" data-view="list" title="List View">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+            </button>
+          </div>
+
+          <!-- TIME RANGE SELECTOR (only shown for top items) -->
+          <div id="time-filter-container" class="time-filters hidden">
+            <button class="time-filter-btn" data-range="short_term">4 Weeks</button>
+            <button class="time-filter-btn active" data-range="medium_term">6 Months</button>
+            <button class="time-filter-btn" data-range="long_term">All Time</button>
+          </div>
+        </div>
+      </header>
+
+      <!-- TAB 1: OVERVIEW -->
+      <section id="tab-overview" class="tab-pane active">
+        <div class="grid-layout cols-3">
+          
+          <!-- QUICK STATS CARDS -->
+          <div class="stats-card">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#1DB954" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            </div>
+            <div class="card-data">
+              <span class="card-value" id="stat-recent-playtime">0 mins</span>
+              <span class="card-label">Playtime (Last 50 Songs)</span>
+            </div>
+          </div>
+
+          <div class="stats-card">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#1DB954" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+            </div>
+            <div class="card-data">
+              <span class="card-value" id="stat-favorite-track">Loading...</span>
+              <span class="card-label">Top Track (6 months)</span>
+            </div>
+          </div>
+
+          <div class="stats-card">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#1DB954" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            </div>
+            <div class="card-data">
+              <span class="card-value" id="stat-favorite-artist">Loading...</span>
+              <span class="card-label">Top Artist (6 months)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-layout cols-2 margin-top">
+          <!-- PROFILE CARD -->
+          <div class="panel profile-panel">
+            <h3>Profile Summary</h3>
+            <div class="profile-details-large">
+              <img id="profile-img-large" src="https://via.placeholder.com/150" alt="Avatar" class="avatar-large">
+              <div class="profile-text-large">
+                <h2 id="profile-name-large">Loading...</h2>
+                <div class="pill-group">
+                  <span id="profile-followers" class="pill">0 followers</span>
+                  <span id="profile-country" class="pill">UK</span>
+                  <span id="profile-product" class="pill premium">Premium</span>
+                </div>
+                <p class="profile-note">Explore the tabs on the left to see detailed charts and statistics of your listening history.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- MINI GENRE RADAR/BAR PANEL -->
+          <div class="panel">
+            <h3>Top Genres</h3>
+            <div id="overview-genres-list" class="mini-list">
+              <div class="loading-inline">Analysing your music taste...</div>
+            </div>
+            <button class="btn btn-secondary btn-sm margin-top" onclick="switchTab('analysis')">View Full Distribution</button>
+          </div>
+        </div>
+
+
+
+        <div class="grid-layout cols-2 margin-top">
+          <!-- RECENTLY PLAYED TEASER -->
+          <div class="panel">
+            <h3>Recently Played</h3>
+            <div id="overview-recent-list" class="mini-tracks-list">
+              <!-- JS filled -->
+            </div>
+            <button class="btn btn-secondary btn-sm margin-top" onclick="switchTab('recent')">See Recently Played</button>
+          </div>
+
+          <!-- TOP SONGS TEASER -->
+          <div class="panel">
+            <h3>Current Favourites</h3>
+            <div id="overview-tracks-list" class="mini-tracks-list">
+              <!-- JS filled -->
+            </div>
+            <button class="btn btn-secondary btn-sm margin-top" onclick="switchTab('tracks')">See Top Songs</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: TOP SONGS -->
+      <section id="tab-tracks" class="tab-pane">
+        <div class="filter-bar panel">
+          <div class="search-input-wrapper">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="track-search-input" placeholder="Search songs, artists or albums...">
+          </div>
+          <div id="track-active-filter" class="active-filter-badge hidden">
+            <span>Filter: <strong id="track-filter-badge-text">-</strong></span>
+            <button id="btn-clear-track-filter" title="Clear filter">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+        </div>
+        <!-- Grid container for Card View -->
+        <div id="top-tracks-grid" class="tracks-grid margin-top"></div>
+        <!-- Table container for List View -->
+        <div id="top-tracks-list-panel" class="panel hidden margin-top">
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width: 60px;">#</th>
+                  <th>Track</th>
+                  <th>Album</th>
+                  <th style="width: 120px;">Popularity</th>
+                  <th style="width: 100px; text-align: right;">Duration</th>
+                </tr>
+              </thead>
+              <tbody id="top-tracks-table-body">
+                <!-- JS Filled -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: TOP ARTISTS -->
+      <section id="tab-artists" class="tab-pane">
+        <div class="filter-bar panel">
+          <div class="search-input-wrapper">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="artist-search-input" placeholder="Search artists or genres...">
+          </div>
+          <div id="artist-active-filter" class="active-filter-badge hidden">
+            <span>Filter: <strong id="filter-badge-text">-</strong></span>
+            <button id="btn-clear-artist-filter" title="Clear filter">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+        </div>
+        <div id="top-artists-grid" class="artists-grid margin-top">
+          <!-- JS Filled -->
+        </div>
+      </section>
+
+      <!-- TAB 4: ANALYSIS -->
+      <section id="tab-analysis" class="tab-pane">
+        <div class="genre-metrics">
+          <div class="metric-block">
+            <span class="metric-index">01</span>
+            <div>
+              <span id="genre-metric-plays" class="metric-value">0</span>
+              <span class="metric-label">Recent plays sampled</span>
+            </div>
+          </div>
+          <div class="metric-block">
+            <span class="metric-index">02</span>
+            <div>
+              <span id="genre-metric-hours" class="metric-value">0h</span>
+              <span class="metric-label">Sample hours</span>
+            </div>
+          </div>
+          <div class="metric-block">
+            <span class="metric-index">03</span>
+            <div>
+              <span id="genre-metric-average" class="metric-value">0:00</span>
+              <span class="metric-label">Average track</span>
+            </div>
+          </div>
+          <div class="metric-block">
+            <span class="metric-index">04</span>
+            <div>
+              <span id="genre-metric-unique" class="metric-value">0</span>
+              <span class="metric-label">Unique genres</span>
+            </div>
+          </div>
+        </div>
+        <div class="grid-layout cols-3-1">
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / TOP ARTISTS</span>
+                <h3>Genre Distribution</h3>
+              </div>
+              <span id="analysis-genres-source" class="data-source">top 50 artist tags</span>
+            </div>
+            <p class="section-desc">Share of genre tags associated with your top artists. One artist may contribute to multiple genres.</p>
+            <div class="genre-visual">
+              <div id="genre-donut" class="genre-donut" aria-label="Genre distribution pie chart"></div>
+              <div id="genres-chart-container" class="chart-container"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <span class="panel-kicker">PROFILE / SIGNAL</span>
+            <h3>Listening Profile</h3>
+            <div class="taste-analysis-card">
+              <div id="taste-title" class="taste-title">Dynamic Eclectic</div>
+              <p id="taste-description" class="taste-desc">Analyzing...</p>
+            </div>
+            <div class="genre-stat-list margin-top">
+              <div class="genre-stat-item">
+                <span class="label">Primary Genre</span>
+                <span id="genre-stat-primary" class="value">-</span>
+              </div>
+              <div class="genre-stat-item">
+                <span class="label">Unique Genres</span>
+                <span id="genre-stat-unique" class="value">0</span>
+              </div>
+              <div class="genre-stat-item">
+                <span class="label">Top Genre Share</span>
+                <span id="genre-stat-share" class="value">0%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ANALYTICAL CHARTS GRID -->
+        <div class="grid-layout cols-2 margin-top">
+          <!-- HOURLY ACTIVITY CHART -->
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / RECENT PLAYS</span>
+                <h3>Hourly Listening Activity</h3>
+              </div>
+              <span class="data-source">last 50 streams</span>
+            </div>
+            <p class="section-desc">Distribution of your listening history by hour of the day (local time).</p>
+            <div id="hourly-activity-chart-container" class="chart-container" style="height: 160px; display: flex; align-items: flex-end; justify-content: space-between; padding: 10px 0 20px 0; position: relative;">
+              <div class="loading-inline">Plotting activity...</div>
+            </div>
+          </div>
+
+          <!-- POPULARITY BREAKDOWN CHART -->
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / MAINSTREAM</span>
+                <h3>Track Popularity Distribution</h3>
+              </div>
+              <span id="analysis-popularity-source" class="data-source">top 50 songs</span>
+            </div>
+            <p class="section-desc">Breakdown of how mainstream or niche your current favourite songs are.</p>
+            <div id="popularity-distribution-container" class="chart-container" style="display: flex; flex-direction: column; gap: 14px; padding-top: 10px;">
+              <div class="loading-inline">Analysing track indexes...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: RECENTLY PLAYED -->
+      <section id="tab-recent" class="tab-pane">
+        <!-- Grid container for Card View -->
+        <div id="recently-played-grid" class="tracks-grid"></div>
+        <!-- Table container for List View -->
+        <div id="recently-played-list-panel" class="panel hidden">
+          <div class="panel-header-actions">
+            <div>
+              <h3>Recently Played History</h3>
+              <p class="section-desc">Your last 50 tracks. Total calculated playtime is shown in the Overview tab.</p>
+            </div>
+          </div>
+          <div class="table-container margin-top">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width: 60px;">#</th>
+                  <th>Track</th>
+                  <th>Album</th>
+                  <th style="width: 180px;">Played At</th>
+                  <th style="width: 100px; text-align: right;">Duration</th>
+                </tr>
+              </thead>
+              <tbody id="recently-played-table-body">
+                <!-- JS Filled -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
