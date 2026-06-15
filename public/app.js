@@ -991,7 +991,8 @@ function renderRecentlyPlayed(data) {
   }
 }
 
-// RENDER TRACKS GRID (CARD VIEW)function renderTracksGrid(container, items, type) {
+// RENDER TRACKS GRID (CARD VIEW)
+function renderTracksGrid(container, items, type) {
   container.innerHTML = '';
   
   if (!items || items.length === 0) {
