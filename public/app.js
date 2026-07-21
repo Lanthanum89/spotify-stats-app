@@ -257,14 +257,13 @@ function setupEventListeners() {
     });
   }
 
-  // Logout event listener
-  const logoutBtn = document.getElementById('btn-logout');
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', (e) => {
+  // Logout event listeners (desktop sidebar + mobile top bar)
+  document.querySelectorAll('.btn-logout').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
       e.preventDefault();
       logout();
     });
-  }
+  });
 
   // Login event listener — kicks off the client-side PKCE redirect to Spotify
   const loginBtn = document.getElementById('btn-login');

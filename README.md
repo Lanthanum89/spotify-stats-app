@@ -9,6 +9,8 @@ SoundTracks is a fully static, backend-free web app that connects to your Spotif
 - **Top Artists**: View your top 50 artists with rankings, genres, and circle portraits.
 - **Genre Distribution**: Calculates and visualises your top genres with a music taste classification profile.
 - **Recently Played**: Shows your last 50 played tracks with relative time calculations and duration details.
+- **Responsive**: A full sidebar layout on desktop; on phones and tablets (≤800px) it switches to a top bar plus a fixed bottom tab bar for navigation, with grids, tables, and filters adapted for smaller screens.
+- **Installable (PWA)**: Can be added to your home screen on Android, with offline caching of the app shell.
 - **Static, backend-free architecture**: Authenticates directly against Spotify from the browser using Authorization Code + PKCE. There's no server holding credentials — no Client Secret, no session store, nothing but static files. Tokens live only in your browser's `localStorage`.
 
 ---
