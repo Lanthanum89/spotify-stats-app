@@ -128,6 +128,23 @@ function hideLoading() {
   document.getElementById('loading-container').classList.add('hidden');
 }
 
+// Mobile nav drawer (hamburger menu, phones & tablets in portrait)
+function openMobileMenu() {
+  document.getElementById('mobile-nav-drawer').classList.add('open');
+  document.getElementById('mobile-nav-drawer').setAttribute('aria-hidden', 'false');
+  document.getElementById('mobile-nav-overlay').classList.add('open');
+  const toggleBtn = document.getElementById('btn-mobile-menu');
+  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+}
+
+function closeMobileMenu() {
+  document.getElementById('mobile-nav-drawer').classList.remove('open');
+  document.getElementById('mobile-nav-drawer').setAttribute('aria-hidden', 'true');
+  document.getElementById('mobile-nav-overlay').classList.remove('open');
+  const toggleBtn = document.getElementById('btn-mobile-menu');
+  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+}
+
 function showError(errorType) {
   const banner = document.getElementById('auth-error-msg');
   banner.classList.remove('hidden');
@@ -157,7 +174,22 @@ function setupEventListeners() {
     button.addEventListener('click', () => {
       const tabId = button.getAttribute('data-tab');
       switchTab(tabId);
+      if (button.closest('#mobile-nav-drawer')) closeMobileMenu();
     });
+  });
+
+  // Mobile nav drawer (hamburger menu, phones & tablets in portrait)
+  const menuToggleBtn = document.getElementById('btn-mobile-menu');
+  const menuCloseBtn = document.getElementById('btn-mobile-menu-close');
+  const menuOverlay = document.getElementById('mobile-nav-overlay');
+  if (menuToggleBtn) menuToggleBtn.addEventListener('click', openMobileMenu);
+  if (menuCloseBtn) menuCloseBtn.addEventListener('click', closeMobileMenu);
+  if (menuOverlay) menuOverlay.addEventListener('click', closeMobileMenu);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeMobileMenu();
+  });
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 800) closeMobileMenu();
   });
 
   // Time Range filters
