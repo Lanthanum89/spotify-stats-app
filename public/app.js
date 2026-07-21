@@ -1325,3 +1325,11 @@ function renderPopularityDistribution(topTracks) {
     </div>
   `;
 }
+
+// PWA install support — only caches the static shell, see sw.js.
+// Relative path so registration resolves correctly under a subpath (e.g. GitHub Pages).
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js');
+  });
+}
