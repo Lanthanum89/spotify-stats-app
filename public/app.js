@@ -18,24 +18,21 @@ let appData = {
 };
 
 // --- Spotify API Helper ---
-async function spotifyFetch(urlPath) {
-  const response = await fetch(urlPath);
-
-  if (response.status === 401) {
-    showLoginScreen();
-    throw new Error('Unauthorized');
+// apiPath is a path under https://api.spotify.com/v1 (e.g. '/me/top/tracks?...').
+async function spotifyFetch(apiPath) {
+  try {
+    return await SpotifyAuth.apiFetch(apiPath);
+  } catch (err) {
+    if (err.isUnauthorized) {
+      showLoginScreen();
+    }
+    throw err;
   }
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API error: ${response.status} - ${errorText}`);
-  }
-
-  return response;
 }
 
 function logout() {
-  window.location.href = '/logout';
+  SpotifyAuth.disconnectSpotify();
+  showLoginScreen();
 }
 
 // UK English formatting helpers
@@ -88,25 +85,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Check if user is authenticated
 async function checkAuthStatus() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const error = urlParams.get('error');
-  
-  if (error) {
-    showError(error);
-    showLoginScreen();
-    hideLoading();
-    return;
-  }
-
   try {
-    const response = await fetch('/api/auth-status');
-    if (response.ok) {
-      const data = await response.json();
-      if (data.authenticated) {
+    // If this page load is Spotify redirecting back with ?code=/?error=, finish
+    // the PKCE exchange first — this also scrubs those params from the URL.
+    const redirectResult = await SpotifyAuth.handleRedirect();
+
+    if (redirectResult.handled) {
+      if (redirectResult.success) {
         await loadDashboard();
       } else {
+        showError(redirectResult.error);
         showLoginScreen();
       }
+      return;
+    }
+
+    if (SpotifyAuth.isConnected()) {
+      await loadDashboard();
     } else {
       showLoginScreen();
     }
@@ -141,11 +136,15 @@ function showError(errorType) {
   if (errorType === 'access_denied') {
     msg = 'Access was denied. You must approve permissions to use the application.';
   } else if (errorType === 'token_exchange_failed') {
-    msg = 'Failed to exchange token with Spotify. Please check your credentials.';
+    msg = 'Failed to exchange the authorisation code with Spotify. Please try connecting again.';
   } else if (errorType === 'no_code') {
     msg = 'No authorisation code was returned from Spotify.';
+  } else if (errorType === 'state_mismatch') {
+    msg = 'The authorisation response could not be verified. Please try connecting again.';
+  } else if (errorType === 'missing_client_id') {
+    msg = 'No Spotify Client ID is configured. Add one to the spotify-client-id meta tag in index.html.';
   } else if (errorType === 'failed_connection') {
-    msg = 'Unable to connect to the local server. Is it running?';
+    msg = 'Unable to reach Spotify. Check your connection and try again.';
   }
   
   banner.textContent = msg;
@@ -266,6 +265,20 @@ function setupEventListeners() {
       logout();
     });
   }
+
+  // Login event listener — kicks off the client-side PKCE redirect to Spotify
+  const loginBtn = document.getElementById('btn-login');
+  if (loginBtn) {
+    loginBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        await SpotifyAuth.connectSpotify();
+      } catch (err) {
+        console.error('Failed to start Spotify login:', err);
+        showError(err.message === 'missing_client_id' ? 'missing_client_id' : 'failed_connection');
+      }
+    });
+  }
 }
 
 // Switch tabs logic
@@ -350,10 +363,10 @@ async function loadDashboard() {
   try {
     // Fetch profile and recently played immediately
     const [profileRes, recentRes, tracksRes, artistsRes] = await Promise.all([
-      spotifyFetch('/api/profile'),
-      spotifyFetch('/api/recently-played?limit=50'),
-      spotifyFetch(`/api/top/tracks?time_range=medium_term&limit=50`),
-      spotifyFetch(`/api/top/artists?time_range=medium_term&limit=50`)
+      spotifyFetch('/me'),
+      spotifyFetch('/me/player/recently-played?limit=50'),
+      spotifyFetch(`/me/top/tracks?time_range=medium_term&limit=50`),
+      spotifyFetch(`/me/top/artists?time_range=medium_term&limit=50`)
     ]);
 
     appData.profile = await profileRes.json();
@@ -541,7 +554,7 @@ async function loadTopTracks(forceReload = false) {
   grid.innerHTML = spinnerHtml;
 
   try {
-    const res = await spotifyFetch(`/api/top/tracks?time_range=${currentRange}&limit=50`);
+    const res = await spotifyFetch(`/me/top/tracks?time_range=${currentRange}&limit=50`);
     const data = await res.json();
     appData.topTracks[currentRange] = data;
     renderTopTracks(data);
@@ -629,7 +642,7 @@ async function loadTopArtists(forceReload = false) {
   grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;"><div class="spinner" style="height: 30px; width: 30px; margin: 0 auto;"></div></div>';
 
   try {
-    const res = await spotifyFetch(`/api/top/artists?time_range=${currentRange}&limit=50`);
+    const res = await spotifyFetch(`/me/top/artists?time_range=${currentRange}&limit=50`);
     const data = await res.json();
     appData.topArtists[currentRange] = data;
     renderTopArtists(data);
@@ -718,14 +731,14 @@ async function loadAnalysisTab(forceReload = false) {
       const promises = [];
       if (needsArtists) {
         promises.push(
-          spotifyFetch(`/api/top/artists?time_range=${currentRange}&limit=50`)
+          spotifyFetch(`/me/top/artists?time_range=${currentRange}&limit=50`)
             .then(res => res.json())
             .then(data => { appData.topArtists[currentRange] = data; })
         );
       }
       if (needsTracks) {
         promises.push(
-          spotifyFetch(`/api/top/tracks?time_range=${currentRange}&limit=50`)
+          spotifyFetch(`/me/top/tracks?time_range=${currentRange}&limit=50`)
             .then(res => res.json())
             .then(data => { appData.topTracks[currentRange] = data; })
         );
@@ -927,7 +940,7 @@ async function loadRecentlyPlayed() {
   grid.innerHTML = spinnerHtml;
 
   try {
-    const res = await spotifyFetch('/api/recently-played?limit=50');
+    const res = await spotifyFetch('/me/player/recently-played?limit=50');
     const data = await res.json();
     appData.recentlyPlayed = data;
     renderRecentlyPlayed(data);
