@@ -1312,5 +1312,3 @@ function renderPopularityDistribution(topTracks) {
     </div>
   `;
 }
-
-
