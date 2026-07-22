@@ -326,7 +326,7 @@ body::after {
 .cols-2 { grid-template-columns: repeat(2, 1fr); }
 .cols-3-1 { grid-template-columns: minmax(0, 2.15fr) minmax(280px, 0.85fr); }
 
-.panel, .stats-card {
+.panel {
   background: rgba(24, 21, 31, 0.45);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -334,9 +334,9 @@ body::after {
   border-radius: var(--radius);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+  padding: 26px;
 }
-.panel { padding: 26px; }
-.panel:hover, .stats-card:hover {
+.panel:hover {
   border-color: rgba(170, 150, 216, 0.25);
   box-shadow: 0 12px 40px 0 rgba(170, 150, 216, 0.08);
   transform: translateY(-4px);
@@ -351,14 +351,6 @@ body::after {
 }
 .data-source { border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; }
 .section-desc { color: var(--muted); font-size: 0.9rem; line-height: 1.55; margin-bottom: 22px; }
-
-.stats-card { align-items: center; display: flex; gap: 20px; padding: 24px; }
-.card-icon { align-items: center; background: var(--accent-soft); border: 1px solid var(--line-strong); border-radius: 8px; display: flex; padding: 12px; }
-.card-icon svg { stroke: var(--accent) !important; }
-.card-data { display: flex; flex-direction: column; min-width: 0; }
-.card-value { color: var(--text); font: 600 1.35rem var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-label { color: var(--muted); font-size: 0.85rem; margin-top: 5px; }
-
 
 .mini-tracks-list, .mini-list { display: flex; flex-direction: column; gap: 7px; }
 .mini-track-item { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 12px; padding: 7px 0 11px; }
@@ -1009,9 +1001,9 @@ body::after {
 #tab-overview .margin-top { margin-top: 10px; }
 #tab-overview .now-playing-panel { padding: 12px 18px; }
 #tab-overview .now-playing-cover { height: 48px; width: 48px; }
-#tab-overview .stats-card { gap: 12px; padding: 12px; }
 #tab-overview .panel:not(.now-playing-panel) { padding: 14px 18px; }
 #tab-overview .panel h3 { font-size: 1rem; margin-bottom: 8px; }
+#tab-overview .panel .panel-kicker { display: block; margin-bottom: 2px; }
 #tab-overview .mini-track-item { padding: 4px 0 6px; }
 #tab-overview .btn-sm.margin-top { margin-top: 8px; }
 

@@ -484,17 +484,22 @@ async function loadDashboard() {
   showDashboardScreen();
   
   try {
-    // Fetch profile and recently played immediately
-    const [profileRes, recentRes, tracksRes, artistsRes] = await Promise.all([
+    // Fetch profile and recently played immediately. short_term also comes in
+    // now (rather than lazily, like other ranges) since the Overview's
+    // Current Favourites teaser needs it — Spotify's short_term is roughly
+    // the last 4 weeks, the closest available match to "last 30 days".
+    const [profileRes, recentRes, tracksRes, shortTracksRes, artistsRes] = await Promise.all([
       spotifyFetch('/me'),
       spotifyFetch('/me/player/recently-played?limit=50'),
       spotifyFetch(`/me/top/tracks?time_range=medium_term&limit=50`),
+      spotifyFetch(`/me/top/tracks?time_range=short_term&limit=50`),
       spotifyFetch(`/me/top/artists?time_range=medium_term&limit=50`)
     ]);
 
     appData.profile = await profileRes.json();
     appData.recentlyPlayed = await recentRes.json();
     appData.topTracks['medium_term'] = await tracksRes.json();
+    appData.topTracks['short_term'] = await shortTracksRes.json();
     appData.topArtists['medium_term'] = await artistsRes.json();
 
     // Fill user bar details
@@ -522,35 +527,18 @@ function renderOverview() {
   const recent = appData.recentlyPlayed;
   const topTracks = appData.topTracks['medium_term'];
   const topArtists = appData.topArtists['medium_term'];
+  const shortTermTracks = appData.topTracks['short_term'];
+  // Falls back to the 6-month list if short_term comes back empty (some
+  // accounts don't have enough recent listening history yet).
+  const favouriteTracks = shortTermTracks && shortTermTracks.items && shortTermTracks.items.length > 0
+    ? shortTermTracks
+    : topTracks;
 
-  // 1. Calculate Playtime (Last 50 songs)
-  let totalPlaytimeMs = 0;
-  if (recent && recent.items) {
-    recent.items.forEach(item => {
-      totalPlaytimeMs += item.track.duration_ms;
-    });
-  }
-  const totalPlaytimeMins = Math.round(totalPlaytimeMs / 60000);
-  document.getElementById('stat-recent-playtime').textContent = `${totalPlaytimeMins} mins`;
-
-  // 2. Favorite Track / Artist labels
-  if (topTracks && topTracks.items && topTracks.items.length > 0) {
-    document.getElementById('stat-favorite-track').textContent = topTracks.items[0].name;
-  } else {
-    document.getElementById('stat-favorite-track').textContent = 'None';
-  }
-
-  if (topArtists && topArtists.items && topArtists.items.length > 0) {
-    document.getElementById('stat-favorite-artist').textContent = topArtists.items[0].name;
-  } else {
-    document.getElementById('stat-favorite-artist').textContent = 'None';
-  }
-
-  // 3. Recently Played Teaser (Limit to 2, keeps Overview fitting one screen)
+  // 1. Recently Played Teaser
   const recentList = document.getElementById('overview-recent-list');
   recentList.innerHTML = '';
   if (recent && recent.items) {
-    recent.items.slice(0, 2).forEach(item => {
+    recent.items.slice(0, 4).forEach(item => {
       const track = item.track;
       const cover = track.album.images && track.album.images.length > 0 
         ? track.album.images[0].url 
@@ -573,11 +561,11 @@ function renderOverview() {
     });
   }
 
-  // 5. Current Favorites Teaser (Limit to 2, keeps Overview fitting one screen)
+  // 2. Current Favourites Teaser (last 30 days)
   const tracksList = document.getElementById('overview-tracks-list');
   tracksList.innerHTML = '';
-  if (topTracks && topTracks.items) {
-    topTracks.items.slice(0, 2).forEach(track => {
+  if (favouriteTracks && favouriteTracks.items) {
+    favouriteTracks.items.slice(0, 3).forEach(track => {
       const cover = track.album.images && track.album.images.length > 0 
         ? track.album.images[0].url 
         : 'https://via.placeholder.com/44';
@@ -599,7 +587,7 @@ function renderOverview() {
     });
   }
 
-  // 6. Genres summary teaser
+  // 3. Genres summary teaser
   renderMiniGenres(topArtists);
 }
 
