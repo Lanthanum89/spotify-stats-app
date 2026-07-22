@@ -338,11 +338,24 @@ function switchTab(tabId) {
   // Show/Hide time range filter and view toggle controls
   const timeFilter = document.getElementById('time-filter-container');
   const viewToggle = document.getElementById('view-toggle-container');
-  
-  if (tabId === 'tracks' || tabId === 'artists' || tabId === 'analysis') {
+
+  // On Analysis, the range selector only affects the genre/popularity/quadrant
+  // charts (not the last-50-based metrics/hourly chart) — so it's relocated to
+  // sit directly above those charts instead of the shared tab header, where it
+  // would misleadingly look like it applies to everything in the tab.
+  const analysisSlot = document.getElementById('analysis-time-filter-slot');
+  const headerControls = document.querySelector('.header-controls');
+
+  if (tabId === 'analysis') {
+    analysisSlot.appendChild(timeFilter);
     timeFilter.classList.remove('hidden');
   } else {
-    timeFilter.classList.add('hidden');
+    headerControls.appendChild(timeFilter);
+    if (tabId === 'tracks' || tabId === 'artists') {
+      timeFilter.classList.remove('hidden');
+    } else {
+      timeFilter.classList.add('hidden');
+    }
   }
 
   if (tabId === 'tracks' || tabId === 'artists' || tabId === 'recent') {

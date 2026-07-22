@@ -510,6 +510,14 @@ body::after {
   align-items: center;
   gap: 12px;
 }
+.analysis-range-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin: 22px 0 18px;
+}
 .view-toggle {
   display: flex;
   border: 1px solid var(--line);
