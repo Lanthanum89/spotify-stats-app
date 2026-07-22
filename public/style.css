@@ -870,3 +870,73 @@ body::after {
   fill: var(--accent-bright);
 }
 
+/* NOW PLAYING */
+.now-playing-panel { padding: 22px 26px; }
+.now-playing-badge {
+  align-items: center;
+  color: var(--green);
+  display: flex;
+  font: 600 0.7rem var(--mono);
+  gap: 7px;
+  letter-spacing: 0.08em;
+}
+.now-playing-pulse {
+  background: var(--green);
+  border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(86, 201, 139, 0.6);
+  height: 8px;
+  width: 8px;
+  animation: now-playing-pulse 1.6s infinite;
+}
+@keyframes now-playing-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(86, 201, 139, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(86, 201, 139, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(86, 201, 139, 0); }
+}
+
+.now-playing-body { align-items: center; display: flex; gap: 18px; margin-top: 6px; }
+.now-playing-cover { border-radius: 8px; flex-shrink: 0; height: 64px; object-fit: cover; width: 64px; }
+.now-playing-info { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.now-playing-title {
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.now-playing-title:hover { color: var(--accent-bright); }
+.now-playing-artist {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.now-playing-context {
+  color: var(--dim);
+  font: 0.75rem var(--mono);
+  margin-top: 4px;
+  min-height: 1.1em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.now-playing-progress-wrapper { margin-top: 10px; }
+.now-playing-progress-bar { background: var(--line); border-radius: 3px; height: 6px; overflow: hidden; width: 100%; }
+.now-playing-progress-fill { background: var(--accent); height: 100%; transition: width 0.4s linear; }
+.now-playing-times {
+  color: var(--dim);
+  display: flex;
+  font: 0.7rem var(--mono);
+  justify-content: space-between;
+  margin-top: 5px;
+}
+
+@media (max-width: 560px) {
+  .now-playing-cover { height: 52px; width: 52px; }
+  .now-playing-panel { padding: 18px; }
+}
+
