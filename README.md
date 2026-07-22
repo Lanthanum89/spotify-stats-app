@@ -5,11 +5,13 @@ SoundTracks is a fully static, backend-free web app that connects to your Spotif
 ## Features
 
 - **Profile Overview**: Displays user profile details, total playtime across recent tracks, and quick summaries.
-- **Top Songs**: View your top 50 songs across three timeframes (4 weeks, 6 months, and all-time).
-- **Top Artists**: View your top 50 artists with rankings, genres, and circle portraits.
-- **Genre Distribution**: Calculates and visualises your top genres with a music taste classification profile.
+- **Top Songs**: View your top 50 songs across three timeframes (4 weeks, 6 months, and all-time), in grid or list view.
+- **Top Artists**: View your top 50 artists with rankings, genres, follower counts, and portraits, in grid or list view.
 - **Recently Played**: Shows your last 50 played tracks with relative time calculations and duration details.
-- **Responsive**: A full sidebar layout on desktop; on phones and tablets (≤800px) it switches to a top bar plus a fixed bottom tab bar for navigation, with grids, tables, and filters adapted for smaller screens.
+- **Analysis tab**: Split into two clearly labelled sections so it's obvious what each chart is actually built from:
+  - *Last 50 Streams* (Spotify's hard cap on play history, doesn't respond to the range selector): total plays/hours/average length, an hourly listening-activity chart, and a day-of-week activity chart — all with hover tooltips.
+  - *Your Top 50 (Selected Range)* (genuinely computed by Spotify over 4 weeks / 6 months / all-time): genre distribution with a music-taste classification, track and artist popularity distributions, track duration distribution, top contributing artists (including features), and four quadrant scatter charts — Popularity vs. Your Rank (tracks and artists), Duration vs. Popularity, and Followers vs. Popularity.
+- **Responsive**: A full sidebar layout on desktop; on phones and tablets in portrait (up to 1024px wide) it switches to a top bar with a hamburger-triggered slide-out nav drawer instead, with grids, tables, and filters adapted for smaller screens.
 - **Installable (PWA)**: Can be added to your home screen on Android, with offline caching of the app shell.
 - **Static, backend-free architecture**: Authenticates directly against Spotify from the browser using Authorization Code + PKCE. There's no server holding credentials — no Client Secret, no session store, nothing but static files. Tokens live only in your browser's `localStorage`.
 
