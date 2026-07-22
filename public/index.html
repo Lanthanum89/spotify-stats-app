@@ -288,40 +288,66 @@
             </button>
           </div>
         </div>
+        <!-- Grid container for Card View -->
         <div id="top-artists-grid" class="artists-grid margin-top">
           <!-- JS Filled -->
+        </div>
+        <!-- Table container for List View -->
+        <div id="top-artists-list-panel" class="panel hidden margin-top">
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width: 60px;">#</th>
+                  <th>Artist</th>
+                  <th>Top Genre</th>
+                  <th style="width: 120px;">Followers</th>
+                  <th style="width: 120px; text-align: right;">Popularity</th>
+                </tr>
+              </thead>
+              <tbody id="top-artists-table-body">
+                <!-- JS Filled -->
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
       <!-- TAB 4: ANALYSIS -->
       <section id="tab-analysis" class="tab-pane">
+        <p class="section-desc">
+          Genre and popularity charts below use the range selected above (Spotify computes these over your real listening
+          history). The plays/hours/average metrics and the hourly activity chart always reflect your <strong>last 50
+          streams</strong> — Spotify's API doesn't expose more play history than that, so those don't change with the range
+          selector.
+        </p>
         <div class="genre-metrics">
           <div class="metric-block">
             <span class="metric-index">01</span>
             <div>
               <span id="genre-metric-plays" class="metric-value">0</span>
-              <span class="metric-label">Recent plays sampled</span>
+              <span class="metric-label">Plays (last 50)</span>
             </div>
           </div>
           <div class="metric-block">
             <span class="metric-index">02</span>
             <div>
               <span id="genre-metric-hours" class="metric-value">0h</span>
-              <span class="metric-label">Sample hours</span>
+              <span class="metric-label">Hours (last 50)</span>
             </div>
           </div>
           <div class="metric-block">
             <span class="metric-index">03</span>
             <div>
               <span id="genre-metric-average" class="metric-value">0:00</span>
-              <span class="metric-label">Average track</span>
+              <span class="metric-label">Avg. track (last 50)</span>
             </div>
           </div>
           <div class="metric-block">
             <span class="metric-index">04</span>
             <div>
               <span id="genre-metric-unique" class="metric-value">0</span>
-              <span class="metric-label">Unique genres</span>
+              <span class="metric-label">Unique genres (range)</span>
             </div>
           </div>
         </div>
@@ -375,7 +401,7 @@
               </div>
               <span class="data-source">last 50 streams</span>
             </div>
-            <p class="section-desc">Distribution of your listening history by hour of the day (local time).</p>
+            <p class="section-desc">Distribution of your last 50 streams by hour of the day (local time). Not affected by the range selector above — Spotify only exposes your 50 most recent plays.</p>
             <div id="hourly-activity-chart-container" class="chart-container" style="height: 160px; display: flex; align-items: flex-end; justify-content: space-between; padding: 10px 0 20px 0; position: relative;">
               <div class="loading-inline">Plotting activity...</div>
             </div>
@@ -394,6 +420,21 @@
             <div id="popularity-distribution-container" class="chart-container" style="display: flex; flex-direction: column; gap: 14px; padding-top: 10px;">
               <div class="loading-inline">Analysing track indexes...</div>
             </div>
+          </div>
+        </div>
+
+        <!-- POPULARITY VS PERSONAL RANK QUADRANT -->
+        <div class="panel margin-top">
+          <div class="panel-heading">
+            <div>
+              <span class="panel-kicker">ANALYSIS / QUADRANT</span>
+              <h3>Popularity vs. Your Rank</h3>
+            </div>
+            <span id="analysis-quadrant-source" class="data-source">top 50 songs</span>
+          </div>
+          <p class="section-desc">Each dot is one of your top tracks: how mainstream it is (Spotify's global popularity score) against how highly you personally rank it. Hover a dot for details.</p>
+          <div id="popularity-rank-quadrant-container" class="chart-container" style="position: relative;">
+            <div class="loading-inline">Plotting quadrant...</div>
           </div>
         </div>
       </section>
