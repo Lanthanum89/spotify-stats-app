@@ -17,6 +17,21 @@ let appData = {
   recentlyPlayed: null
 };
 
+// Now Playing polling state
+const NOW_PLAYING_POLL_MS = 5000;
+const NOW_PLAYING_TICK_MS = 500;
+let nowPlayingPollTimer = null;
+let nowPlayingTickTimer = null;
+let nowPlayingState = {
+  trackId: null,
+  isPlaying: false,
+  progressMs: 0,
+  durationMs: 0,
+  lastSyncedAt: 0,
+  contextUri: null,
+  contextName: null
+};
+
 // --- Spotify API Helper ---
 // apiPath is a path under https://api.spotify.com/v1 (e.g. '/me/top/tracks?...').
 async function spotifyFetch(apiPath) {
@@ -31,6 +46,7 @@ async function spotifyFetch(apiPath) {
 }
 
 function logout() {
+  stopNowPlayingPolling();
   SpotifyAuth.disconnectSpotify();
   showLoginScreen();
 }
@@ -430,6 +446,7 @@ async function loadDashboard() {
 
     // Render overview tab first
     renderOverview();
+    startNowPlayingPolling();
 
   } catch (err) {
     console.error('Error fetching dashboard data:', err);
@@ -534,6 +551,186 @@ function renderOverview() {
 
   // 6. Genres summary teaser
   renderMiniGenres(topArtists);
+}
+
+// --- NOW PLAYING ---
+// Polls /me/player/currently-playing periodically for the real state, and
+// ticks a local timer between polls so the progress bar advances smoothly
+// without hammering the API every second.
+
+function startNowPlayingPolling() {
+  stopNowPlayingPolling();
+
+  pollNowPlaying();
+  nowPlayingPollTimer = setInterval(pollNowPlaying, NOW_PLAYING_POLL_MS);
+  nowPlayingTickTimer = setInterval(tickNowPlayingProgress, NOW_PLAYING_TICK_MS);
+
+  // Don't burn API calls / battery polling a tab nobody is looking at.
+  document.addEventListener('visibilitychange', handleNowPlayingVisibilityChange);
+}
+
+function stopNowPlayingPolling() {
+  if (nowPlayingPollTimer) clearInterval(nowPlayingPollTimer);
+  if (nowPlayingTickTimer) clearInterval(nowPlayingTickTimer);
+  nowPlayingPollTimer = null;
+  nowPlayingTickTimer = null;
+  document.removeEventListener('visibilitychange', handleNowPlayingVisibilityChange);
+}
+
+function handleNowPlayingVisibilityChange() {
+  if (document.hidden) {
+    if (nowPlayingPollTimer) clearInterval(nowPlayingPollTimer);
+    if (nowPlayingTickTimer) clearInterval(nowPlayingTickTimer);
+    nowPlayingPollTimer = null;
+    nowPlayingTickTimer = null;
+  } else if (!nowPlayingPollTimer) {
+    pollNowPlaying();
+    nowPlayingPollTimer = setInterval(pollNowPlaying, NOW_PLAYING_POLL_MS);
+    nowPlayingTickTimer = setInterval(tickNowPlayingProgress, NOW_PLAYING_TICK_MS);
+  }
+}
+
+async function pollNowPlaying() {
+  let response;
+  try {
+    response = await spotifyFetch('/me/player/currently-playing');
+  } catch (err) {
+    if (err.status === 403) {
+      // Session was authorised before user-read-currently-playing existed —
+      // needs a fresh login to pick up the new scope.
+      stopNowPlayingPolling();
+      renderNowPlayingNeedsReconnect();
+      return;
+    }
+    // spotifyFetch already handles 401 (shows login screen); anything else
+    // (network blip, rate limit) just skips this poll — we'll try again shortly.
+    return;
+  }
+
+  if (response.status === 204) {
+    renderNowPlayingIdle();
+    return;
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch (err) {
+    return;
+  }
+
+  if (!data || !data.item) {
+    renderNowPlayingIdle();
+    return;
+  }
+
+  await renderNowPlayingActive(data);
+}
+
+function renderNowPlayingIdle() {
+  nowPlayingState = { trackId: null, isPlaying: false, progressMs: 0, durationMs: 0, lastSyncedAt: 0, contextUri: null, contextName: null };
+  document.getElementById('now-playing-status-badge').classList.add('hidden');
+  document.getElementById('now-playing-content').innerHTML =
+    '<div class="loading-inline">Nothing playing right now. Start a track on Spotify to see it here.</div>';
+}
+
+function renderNowPlayingNeedsReconnect() {
+  document.getElementById('now-playing-status-badge').classList.add('hidden');
+  document.getElementById('now-playing-content').innerHTML =
+    '<div class="loading-inline">Reconnect your Spotify account to enable Now Playing (needs one extra permission).</div>';
+}
+
+async function renderNowPlayingActive(data) {
+  const track = data.item;
+  const isNewTrack = track.id !== nowPlayingState.trackId;
+  const contextUri = data.context ? data.context.uri : null;
+  const isNewContext = contextUri !== nowPlayingState.contextUri;
+
+  nowPlayingState.trackId = track.id;
+  nowPlayingState.isPlaying = Boolean(data.is_playing);
+  nowPlayingState.progressMs = data.progress_ms || 0;
+  nowPlayingState.durationMs = track.duration_ms || 0;
+  nowPlayingState.lastSyncedAt = Date.now();
+  nowPlayingState.contextUri = contextUri;
+
+  if (isNewContext) {
+    nowPlayingState.contextName = null; // cleared until (if) the fetch below resolves
+    if (data.context) {
+      fetchNowPlayingContextName(data.context, contextUri);
+    }
+  }
+
+  const badge = document.getElementById('now-playing-status-badge');
+  badge.classList.toggle('hidden', !nowPlayingState.isPlaying);
+
+  if (isNewTrack || !document.getElementById('now-playing-track')) {
+    const cover = track.album.images && track.album.images.length > 0
+      ? track.album.images[0].url
+      : 'https://via.placeholder.com/64';
+    const artistsName = track.artists.map((a) => a.name).join(', ');
+    const spotifyUrl = track.external_urls.spotify;
+
+    document.getElementById('now-playing-content').innerHTML = `
+      <div class="now-playing-body">
+        <img id="now-playing-cover" class="now-playing-cover" src="${cover}" alt="${track.name}">
+        <div class="now-playing-info">
+          <a id="now-playing-track" class="now-playing-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="${track.name}">${track.name}</a>
+          <span class="now-playing-artist">${artistsName}</span>
+          <span id="now-playing-context" class="now-playing-context">${nowPlayingState.contextName ? `Playing from: ${nowPlayingState.contextName}` : ''}</span>
+          <div class="now-playing-progress-wrapper">
+            <div class="now-playing-progress-bar"><div id="now-playing-progress-fill" class="now-playing-progress-fill"></div></div>
+            <div class="now-playing-times">
+              <span id="now-playing-elapsed">0:00</span>
+              <span id="now-playing-duration">${formatDuration(nowPlayingState.durationMs)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  updateNowPlayingProgressUI();
+}
+
+async function fetchNowPlayingContextName(context, contextUri) {
+  if (!context.href) return;
+  const path = context.href.replace('https://api.spotify.com/v1', '');
+
+  try {
+    const res = await spotifyFetch(path);
+    const data = await res.json();
+    // Only apply if we're still on the same context (avoids a slow response
+    // clobbering a newer track's context after a fast skip).
+    if (nowPlayingState.contextUri === contextUri && data.name) {
+      nowPlayingState.contextName = data.name;
+      const contextEl = document.getElementById('now-playing-context');
+      if (contextEl) contextEl.textContent = `Playing from: ${data.name}`;
+    }
+  } catch (err) {
+    // Missing playlist-read-private scope on an older session, a since-deleted
+    // playlist, etc. — just leave the context line blank rather than erroring.
+  }
+}
+
+function tickNowPlayingProgress() {
+  if (!nowPlayingState.isPlaying || !nowPlayingState.trackId) return;
+  updateNowPlayingProgressUI();
+}
+
+function updateNowPlayingProgressUI() {
+  const fill = document.getElementById('now-playing-progress-fill');
+  const elapsedEl = document.getElementById('now-playing-elapsed');
+  if (!fill || !elapsedEl) return;
+
+  let displayedMs = nowPlayingState.progressMs;
+  if (nowPlayingState.isPlaying) {
+    displayedMs += Date.now() - nowPlayingState.lastSyncedAt;
+  }
+  displayedMs = Math.min(displayedMs, nowPlayingState.durationMs);
+
+  const percentage = nowPlayingState.durationMs > 0 ? (displayedMs / nowPlayingState.durationMs) * 100 : 0;
+  fill.style.width = `${percentage}%`;
+  elapsedEl.textContent = formatDuration(displayedMs);
 }
 
 // Render Mini Genres List on Overview

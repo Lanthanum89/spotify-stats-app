@@ -6,7 +6,7 @@
   const AUTH_ENDPOINT = 'https://accounts.spotify.com/authorize';
   const TOKEN_ENDPOINT = 'https://accounts.spotify.com/api/token';
   const API_BASE = 'https://api.spotify.com/v1';
-  const SCOPES = 'user-read-private user-read-email user-top-read user-read-recently-played';
+  const SCOPES = 'user-read-private user-read-email user-top-read user-read-recently-played user-read-currently-playing playlist-read-private';
   const REFRESH_MARGIN_MS = 60 * 1000; // refresh if the token expires within this window
 
   const STORAGE_KEYS = {
@@ -231,7 +231,9 @@
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorText}`);
+      const error = new Error(`API error: ${response.status} - ${errorText}`);
+      error.status = response.status;
+      throw error;
     }
 
     return response;

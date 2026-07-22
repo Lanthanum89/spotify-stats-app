@@ -152,7 +152,23 @@
 
       <!-- TAB 1: OVERVIEW -->
       <section id="tab-overview" class="tab-pane active">
-        <div class="grid-layout cols-3">
+        <!-- NOW PLAYING -->
+        <div class="panel now-playing-panel" id="now-playing-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="panel-kicker">LIVE</span>
+              <h3>Now Playing</h3>
+            </div>
+            <span id="now-playing-status-badge" class="now-playing-badge hidden">
+              <span class="now-playing-pulse"></span> LIVE
+            </span>
+          </div>
+          <div id="now-playing-content">
+            <div class="loading-inline">Checking playback...</div>
+          </div>
+        </div>
+
+        <div class="grid-layout cols-3 margin-top">
           
           <!-- QUICK STATS CARDS -->
           <div class="stats-card">
