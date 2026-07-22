@@ -518,6 +518,16 @@ body::after {
   justify-content: space-between;
   margin: 22px 0 18px;
 }
+.analysis-section-title {
+  color: var(--accent-bright);
+  display: block;
+  font: 600 0.8rem var(--mono);
+  letter-spacing: 0.11em;
+  margin: 26px 0 16px;
+  text-transform: uppercase;
+}
+.analysis-range-row .analysis-section-title { margin: 0; }
+.genre-metrics + .grid-layout { margin-top: 18px; }
 .view-toggle {
   display: flex;
   border: 1px solid var(--line);
