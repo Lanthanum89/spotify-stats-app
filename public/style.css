@@ -261,26 +261,16 @@ body::after {
   background: var(--accent-soft);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 10px;
+  padding: 8px 10px;
 }
-.mini-player-queue { display: flex; flex-direction: column; gap: 2px; margin: 0 0 8px; padding: 0 0 8px; border-bottom: 1px dashed var(--line-strong); list-style: none; }
-.mini-player-queue.hidden { display: none; }
-.mini-player-queue-item {
-  color: var(--dim);
-  font-size: 0.68rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mini-player-queue-item::before { color: var(--muted); content: "\2022"; margin-right: 5px; }
 .mini-player-now { align-items: center; display: flex; gap: 8px; min-width: 0; }
-.mini-player-cover { border-radius: 4px; flex-shrink: 0; height: 36px; object-fit: cover; width: 36px; }
+.mini-player-cover { border-radius: 4px; flex-shrink: 0; height: 32px; object-fit: cover; width: 32px; }
 .mini-player-info { display: flex; flex-direction: column; min-width: 0; }
-.mini-player-track { color: var(--text); font-size: 0.78rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mini-player-artist { color: var(--muted); font-size: 0.68rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mini-player-progress { background: var(--line); border-radius: 2px; height: 3px; margin-top: 8px; overflow: hidden; width: 100%; }
+.mini-player-track { color: var(--text); font-size: 0.76rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-player-artist { color: var(--muted); font-size: 0.66rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-player-progress { background: var(--line); border-radius: 2px; height: 3px; margin-top: 6px; overflow: hidden; width: 100%; }
 .mini-player-progress-fill { background: var(--accent); height: 100%; transition: width 0.4s linear; width: 0; }
-.mini-player-controls { align-items: center; display: flex; justify-content: center; gap: 14px; margin-top: 8px; }
+.mini-player-controls { align-items: center; display: flex; justify-content: center; gap: 14px; margin-top: 6px; }
 .mini-player-btn { align-items: center; background: transparent; border: none; color: var(--muted); cursor: pointer; display: flex; justify-content: center; padding: 4px; transition: var(--transition); }
 .mini-player-btn:hover:not(:disabled) { color: var(--accent-bright); }
 .mini-player-btn:disabled { cursor: default; opacity: 0.4; }
@@ -290,12 +280,30 @@ body::after {
   border-radius: 50%;
   color: var(--sidebar);
   display: flex;
-  height: 26px;
+  height: 24px;
   justify-content: center;
-  width: 26px;
+  width: 24px;
 }
 .mini-player-play-btn:hover:not(:disabled) { background: var(--accent-bright); color: var(--sidebar); }
-.mini-player-error { color: var(--danger, #e18088); display: block; font-size: 0.65rem; margin-top: 6px; text-align: center; }
+.mini-player-error { color: var(--danger, #e18088); display: block; font-size: 0.65rem; margin-top: 4px; text-align: center; }
+
+/* OVERVIEW NOW PLAYING — full-size transport controls under the progress bar */
+.now-playing-controls { align-items: center; display: flex; gap: 18px; justify-content: center; margin-top: 14px; }
+.now-playing-control-btn { align-items: center; background: transparent; border: none; color: var(--muted); cursor: pointer; display: flex; justify-content: center; padding: 6px; transition: var(--transition); }
+.now-playing-control-btn:hover:not(:disabled) { color: var(--accent-bright); }
+.now-playing-control-btn:disabled { cursor: default; opacity: 0.4; }
+.now-playing-play-btn {
+  align-items: center;
+  background: var(--accent);
+  border-radius: 50%;
+  color: var(--sidebar);
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+.now-playing-play-btn:hover:not(:disabled) { background: var(--accent-bright); color: var(--sidebar); }
+.now-playing-controls-error { color: var(--danger, #e18088); display: block; font-size: 0.7rem; text-align: center; width: 100%; }
 
 .main-content { height: 100vh; overflow-y: auto; padding: 34px 42px 60px; }
 .content-header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 20px; }
