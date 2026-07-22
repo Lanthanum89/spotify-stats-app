@@ -163,6 +163,15 @@ body::after {
   margin-top: 22px;
   padding: 12px;
 }
+#dashboard-error-banner {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+#dashboard-error-banner .btn-sm { color: var(--danger); flex-shrink: 0; }
 
 .spinner-container {
   left: 50%;
