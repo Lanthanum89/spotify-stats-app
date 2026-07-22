@@ -989,11 +989,30 @@ function renderAnalysisTab() {
     quadrantSource.textContent = `top 50 songs (${rangeLabel})`;
   }
 
+  const artistPopularitySource = document.getElementById('analysis-artist-popularity-source');
+  if (artistPopularitySource) {
+    artistPopularitySource.textContent = `top 50 artists (${rangeLabel})`;
+  }
+
+  const durationSource = document.getElementById('analysis-duration-source');
+  if (durationSource) {
+    durationSource.textContent = `top 50 songs (${rangeLabel})`;
+  }
+
+  const contributingSource = document.getElementById('analysis-contributing-source');
+  if (contributingSource) {
+    contributingSource.textContent = `top 50 songs (${rangeLabel})`;
+  }
+
   // Draw the additional charts on this tab!
   renderHourlyActivityChart(appData.recentlyPlayed);
+  renderDayOfWeekActivityChart(appData.recentlyPlayed);
 
   const activeTracks = appData.topTracks[currentRange] || appData.topTracks['medium_term'];
   renderPopularityDistribution(activeTracks);
+  renderArtistPopularityDistribution(activeArtists);
+  renderDurationDistribution(activeTracks);
+  renderTopContributingArtists(activeTracks);
   renderPopularityRankQuadrant(activeTracks);
 }
 
@@ -1396,6 +1415,81 @@ function attachChartTooltip(container, elements, getLabel) {
   });
 }
 
+// RENDER DAY-OF-WEEK LISTENING ACTIVITY CHART (SVG) — companion to the hourly chart
+function renderDayOfWeekActivityChart(recent) {
+  const container = document.getElementById('day-of-week-chart-container');
+  if (!container) return;
+
+  if (!recent || !recent.items || recent.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">No stream activity available.</div>';
+    return;
+  }
+
+  // Monday-first week, matching UK convention used elsewhere in the app.
+  const dayLabels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+  const dayCounts = Array(7).fill(0);
+  recent.items.forEach((item) => {
+    const jsDay = new Date(item.played_at).getDay(); // 0 = Sunday ... 6 = Saturday
+    const mondayFirstIndex = (jsDay + 6) % 7; // 0 = Monday ... 6 = Sunday
+    dayCounts[mondayFirstIndex]++;
+  });
+
+  const maxCount = Math.max(...dayCounts, 1);
+  const barWidth = 46;
+  const gap = 20;
+  const chartWidth = dayLabels.length * (barWidth + gap);
+
+  let svgContent = `<svg viewBox="0 0 ${chartWidth} 160" style="width: 100%; height: 100%; overflow: visible;">`;
+
+  svgContent += `
+    <line x1="0" y1="130" x2="${chartWidth}" y2="130" stroke="var(--line)" stroke-width="1" />
+    <line x1="0" y1="65" x2="${chartWidth}" y2="65" stroke="var(--line)" stroke-width="1" stroke-dasharray="4,4" />
+    <line x1="0" y1="0" x2="${chartWidth}" y2="0" stroke="var(--line)" stroke-dasharray="4,4" />
+  `;
+
+  dayCounts.forEach((count, index) => {
+    const x = index * (barWidth + gap) + gap / 2;
+    const barHeight = (count / maxCount) * 115;
+    const y = 130 - barHeight;
+    const barColor = count > 0 ? 'var(--accent)' : 'var(--line-strong)';
+
+    svgContent += `
+      <rect
+        class="day-of-week-bar"
+        data-day="${dayLabels[index]}"
+        data-count="${count}"
+        x="${x}" y="${y}"
+        width="${barWidth}" height="${barHeight}"
+        rx="3" ry="3"
+        fill="${barColor}"
+        opacity="0.8"
+        style="transition: all 0.2s ease-in-out; cursor: pointer;"
+        onmouseover="this.setAttribute('opacity', '1'); this.setAttribute('fill', 'var(--accent-bright)')"
+        onmouseout="this.setAttribute('opacity', '0.8'); this.setAttribute('fill', '${barColor}')"
+      ></rect>
+    `;
+
+    svgContent += `
+      <text
+        x="${x + barWidth / 2}" y="150"
+        fill="var(--dim)"
+        font-size="10"
+        font-family="var(--mono)"
+        text-anchor="middle"
+      >${dayLabels[index]}</text>
+    `;
+  });
+
+  svgContent += `</svg>`;
+  container.innerHTML = svgContent;
+
+  attachChartTooltip(container, container.querySelectorAll('.day-of-week-bar'), (bar) => {
+    const day = bar.getAttribute('data-day');
+    const count = bar.getAttribute('data-count');
+    return `${day} — ${count} play${count !== '1' ? 's' : ''}`;
+  });
+}
+
 // RENDER POPULARITY DISTRIBUTION CHART
 function renderPopularityDistribution(topTracks) {
   const container = document.getElementById('popularity-distribution-container');
@@ -1468,6 +1562,164 @@ function renderPopularityDistribution(topTracks) {
       </div>
     </div>
   `;
+}
+
+// RENDER ARTIST POPULARITY DISTRIBUTION CHART — same buckets as the track version, for artists
+function renderArtistPopularityDistribution(topArtists) {
+  const container = document.getElementById('artist-popularity-distribution-container');
+  if (!container) return;
+
+  if (!topArtists || !topArtists.items || topArtists.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">No artist popularity metrics available.</div>';
+    return;
+  }
+
+  let mainstream = 0;
+  let popular = 0;
+  let alternative = 0;
+  let obscure = 0;
+  const total = topArtists.items.length;
+
+  topArtists.items.forEach((artist) => {
+    const pop = artist.popularity;
+    if (pop >= 80) mainstream++;
+    else if (pop >= 60) popular++;
+    else if (pop >= 30) alternative++;
+    else obscure++;
+  });
+
+  const percentages = {
+    mainstream: Math.round((mainstream / total) * 100),
+    popular: Math.round((popular / total) * 100),
+    alternative: Math.round((alternative / total) * 100),
+    obscure: Math.round((obscure / total) * 100)
+  };
+
+  container.innerHTML = `
+    <div class="genre-bar-container">
+      <div class="genre-bar-info">
+        <span class="genre-bar-name" style="font-weight: 500;">Mainstream Hits (80-100)</span>
+        <span class="genre-bar-percentage">${percentages.mainstream}%</span>
+      </div>
+      <div class="genre-bar-wrapper">
+        <div class="genre-bar-fill" style="width: ${percentages.mainstream}%; background: var(--green);"></div>
+      </div>
+    </div>
+
+    <div class="genre-bar-container">
+      <div class="genre-bar-info">
+        <span class="genre-bar-name" style="font-weight: 500;">Popular & Hot (60-79)</span>
+        <span class="genre-bar-percentage">${percentages.popular}%</span>
+      </div>
+      <div class="genre-bar-wrapper">
+        <div class="genre-bar-fill" style="width: ${percentages.popular}%; background: var(--accent);"></div>
+      </div>
+    </div>
+
+    <div class="genre-bar-container">
+      <div class="genre-bar-info">
+        <span class="genre-bar-name" style="font-weight: 500;">Alternative / Indie (30-59)</span>
+        <span class="genre-bar-percentage">${percentages.alternative}%</span>
+      </div>
+      <div class="genre-bar-wrapper">
+        <div class="genre-bar-fill" style="width: ${percentages.alternative}%; background: var(--accent-bright);"></div>
+      </div>
+    </div>
+
+    <div class="genre-bar-container">
+      <div class="genre-bar-info">
+        <span class="genre-bar-name" style="font-weight: 500;">Obscure & Underground (0-29)</span>
+        <span class="genre-bar-percentage">${percentages.obscure}%</span>
+      </div>
+      <div class="genre-bar-wrapper">
+        <div class="genre-bar-fill" style="width: ${percentages.obscure}%; background: var(--dim);"></div>
+      </div>
+    </div>
+  `;
+}
+
+// RENDER TRACK DURATION DISTRIBUTION CHART
+function renderDurationDistribution(topTracks) {
+  const container = document.getElementById('duration-distribution-container');
+  if (!container) return;
+
+  if (!topTracks || !topTracks.items || topTracks.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">No track duration data available.</div>';
+    return;
+  }
+
+  const buckets = [
+    { label: 'Under 2 min', max: 120000, count: 0, color: 'var(--dim)' },
+    { label: '2-3 min', max: 180000, count: 0, color: 'var(--accent-bright)' },
+    { label: '3-4 min', max: 240000, count: 0, color: 'var(--accent)' },
+    { label: '4-5 min', max: 300000, count: 0, color: 'var(--green)' },
+    { label: '5 min+', max: Infinity, count: 0, color: 'var(--accent)' }
+  ];
+
+  const total = topTracks.items.length;
+  topTracks.items.forEach((track) => {
+    const bucket = buckets.find((b) => track.duration_ms < b.max);
+    bucket.count++;
+  });
+
+  container.innerHTML = buckets.map((bucket) => {
+    const percentage = Math.round((bucket.count / total) * 100);
+    return `
+      <div class="genre-bar-container">
+        <div class="genre-bar-info">
+          <span class="genre-bar-name" style="font-weight: 500;">${bucket.label}</span>
+          <span class="genre-bar-percentage">${bucket.count} track${bucket.count !== 1 ? 's' : ''} · ${percentage}%</span>
+        </div>
+        <div class="genre-bar-wrapper">
+          <div class="genre-bar-fill" style="width: ${percentage}%; background: ${bucket.color};"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// RENDER TOP CONTRIBUTING ARTISTS — which artists appear most often across the top tracks list (features included)
+function renderTopContributingArtists(topTracks) {
+  const container = document.getElementById('top-contributing-artists-container');
+  if (!container) return;
+
+  if (!topTracks || !topTracks.items || topTracks.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">No track data available.</div>';
+    return;
+  }
+
+  const artistCounts = {};
+  topTracks.items.forEach((track) => {
+    track.artists.forEach((artist) => {
+      artistCounts[artist.name] = (artistCounts[artist.name] || 0) + 1;
+    });
+  });
+
+  const sortedArtists = Object.entries(artistCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+
+  if (sortedArtists.length === 0 || sortedArtists[0][1] <= 1) {
+    container.innerHTML = '<div class="loading-inline">No repeat artists — your top tracks are spread across different artists.</div>';
+    return;
+  }
+
+  const maxCount = sortedArtists[0][1];
+
+  container.innerHTML = sortedArtists.map(([name, count]) => {
+    const percentage = Math.round((count / maxCount) * 100);
+    return `
+      <div class="genre-bar-container">
+        <div class="genre-bar-info">
+          <span class="genre-bar-name">${escapeHtml(name)}</span>
+          <span class="genre-bar-percentage">${count} track${count !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="genre-bar-wrapper">
+          <div class="genre-bar-fill" style="width: ${percentage}%;"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 // RENDER POPULARITY VS PERSONAL RANK QUADRANT CHART

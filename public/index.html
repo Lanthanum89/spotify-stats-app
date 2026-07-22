@@ -316,10 +316,12 @@
       <!-- TAB 4: ANALYSIS -->
       <section id="tab-analysis" class="tab-pane">
         <p class="section-desc">
-          The plays/hours/average metrics and the hourly activity chart below always reflect your <strong>last 50
-          streams</strong> — Spotify's API doesn't expose more play history than that. The genre, popularity, and quadrant
-          charts further down use a selectable range instead, since Spotify computes those over your real listening history.
+          The metrics and charts in the <strong>Last 50 Streams</strong> section below always reflect exactly that — Spotify's
+          API doesn't expose more play history than that. Everything under the range selector further down uses your real
+          top-tracks/top-artists history instead, computed by Spotify over whichever range you pick.
         </p>
+
+        <span class="analysis-section-title">Last 50 Streams</span>
         <div class="genre-metrics">
           <div class="metric-block">
             <span class="metric-index">01</span>
@@ -350,10 +352,44 @@
             </div>
           </div>
         </div>
-        <div class="analysis-range-row">
-          <span class="panel-kicker">RANGE FOR GENRE / POPULARITY / QUADRANT CHARTS BELOW</span>
+
+        <div class="grid-layout cols-2 margin-top">
+          <!-- HOURLY ACTIVITY CHART -->
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / RECENT PLAYS</span>
+                <h3>Hourly Listening Activity</h3>
+              </div>
+              <span class="data-source">last 50 streams</span>
+            </div>
+            <p class="section-desc">Distribution of your last 50 streams by hour of the day (local time).</p>
+            <div id="hourly-activity-chart-container" class="chart-container" style="height: 160px; display: flex; align-items: flex-end; justify-content: space-between; padding: 10px 0 20px 0; position: relative;">
+              <div class="loading-inline">Plotting activity...</div>
+            </div>
+          </div>
+
+          <!-- DAY OF WEEK ACTIVITY CHART -->
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / RECENT PLAYS</span>
+                <h3>Day-of-Week Activity</h3>
+              </div>
+              <span class="data-source">last 50 streams</span>
+            </div>
+            <p class="section-desc">Which days your last 50 streams landed on (local time).</p>
+            <div id="day-of-week-chart-container" class="chart-container" style="height: 160px; display: flex; align-items: flex-end; justify-content: space-between; padding: 10px 0 20px 0; position: relative;">
+              <div class="loading-inline">Plotting activity...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="analysis-range-row margin-top">
+          <span class="analysis-section-title">Your Top 50 (Selected Range)</span>
           <div id="analysis-time-filter-slot"></div>
         </div>
+
         <div class="grid-layout cols-3-1">
           <div class="panel">
             <div class="panel-heading">
@@ -393,24 +429,8 @@
           </div>
         </div>
 
-        <!-- ANALYTICAL CHARTS GRID -->
+        <!-- POPULARITY DISTRIBUTION CHARTS: TRACKS + ARTISTS -->
         <div class="grid-layout cols-2 margin-top">
-          <!-- HOURLY ACTIVITY CHART -->
-          <div class="panel">
-            <div class="panel-heading">
-              <div>
-                <span class="panel-kicker">ANALYSIS / RECENT PLAYS</span>
-                <h3>Hourly Listening Activity</h3>
-              </div>
-              <span class="data-source">last 50 streams</span>
-            </div>
-            <p class="section-desc">Distribution of your last 50 streams by hour of the day (local time). Not affected by the range selector above — Spotify only exposes your 50 most recent plays.</p>
-            <div id="hourly-activity-chart-container" class="chart-container" style="height: 160px; display: flex; align-items: flex-end; justify-content: space-between; padding: 10px 0 20px 0; position: relative;">
-              <div class="loading-inline">Plotting activity...</div>
-            </div>
-          </div>
-
-          <!-- POPULARITY BREAKDOWN CHART -->
           <div class="panel">
             <div class="panel-heading">
               <div>
@@ -422,6 +442,51 @@
             <p class="section-desc">Breakdown of how mainstream or niche your current favourite songs are.</p>
             <div id="popularity-distribution-container" class="chart-container" style="display: flex; flex-direction: column; gap: 14px; padding-top: 10px;">
               <div class="loading-inline">Analysing track indexes...</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / MAINSTREAM</span>
+                <h3>Artist Popularity Distribution</h3>
+              </div>
+              <span id="analysis-artist-popularity-source" class="data-source">top 50 artists</span>
+            </div>
+            <p class="section-desc">Breakdown of how mainstream or niche your current favourite artists are.</p>
+            <div id="artist-popularity-distribution-container" class="chart-container" style="display: flex; flex-direction: column; gap: 14px; padding-top: 10px;">
+              <div class="loading-inline">Analysing artist indexes...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TRACK DURATION + TOP CONTRIBUTING ARTISTS -->
+        <div class="grid-layout cols-2 margin-top">
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / LENGTH</span>
+                <h3>Track Duration Distribution</h3>
+              </div>
+              <span id="analysis-duration-source" class="data-source">top 50 songs</span>
+            </div>
+            <p class="section-desc">How long your favourite songs typically run.</p>
+            <div id="duration-distribution-container" class="chart-container" style="display: flex; flex-direction: column; gap: 14px; padding-top: 10px;">
+              <div class="loading-inline">Measuring track lengths...</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / ROTATION</span>
+                <h3>Top Contributing Artists</h3>
+              </div>
+              <span id="analysis-contributing-source" class="data-source">top 50 songs</span>
+            </div>
+            <p class="section-desc">Which artists show up most often across your top tracks (including features).</p>
+            <div id="top-contributing-artists-container" class="chart-container">
+              <div class="loading-inline">Counting appearances...</div>
             </div>
           </div>
         </div>
