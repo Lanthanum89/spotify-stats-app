@@ -827,3 +827,28 @@ body::after {
   background: rgba(255, 255, 255, 0.05) !important;
 }
 
+/* FLOATING CHART TOOLTIP — follows the cursor over SVG chart elements */
+.chart-tooltip {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  transform: translate(-50%, -130%);
+  background: rgba(11, 10, 15, 0.92);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--text);
+  font: 500 0.75rem var(--mono);
+  padding: 6px 10px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.quadrant-dot {
+  transition: r 0.15s ease, opacity 0.15s ease;
+}
+.quadrant-dot:hover {
+  r: 7;
+  opacity: 1;
+  fill: var(--accent-bright);
+}
+

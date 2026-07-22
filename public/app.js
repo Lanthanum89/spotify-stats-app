@@ -217,9 +217,11 @@ function setupEventListeners() {
       button.classList.add('active');
       currentView = button.getAttribute('data-view');
       
-      // Re-render active tab if it's tracks or recent
+      // Re-render active tab if it's tracks, artists, or recent
       if (currentTab === 'tracks') {
         renderTopTracks(appData.topTracks[currentRange]);
+      } else if (currentTab === 'artists') {
+        renderTopArtists(appData.topArtists[currentRange] || appData.topArtists['medium_term']);
       } else if (currentTab === 'recent') {
         renderRecentlyPlayed(appData.recentlyPlayed);
       }
@@ -343,7 +345,7 @@ function switchTab(tabId) {
     timeFilter.classList.add('hidden');
   }
 
-  if (tabId === 'tracks' || tabId === 'recent') {
+  if (tabId === 'tracks' || tabId === 'artists' || tabId === 'recent') {
     viewToggle.classList.remove('hidden');
     // Ensure the toggle buttons show correct active view status
     document.querySelectorAll('.view-toggle-btn').forEach(btn => {
@@ -664,13 +666,16 @@ function renderTopTracks(data) {
 // LOAD TOP ARTISTS
 async function loadTopArtists(forceReload = false) {
   const grid = document.getElementById('top-artists-grid');
+  const tbody = document.getElementById('top-artists-table-body');
 
   if (!forceReload && appData.topArtists[currentRange]) {
     renderTopArtists(appData.topArtists[currentRange]);
     return;
   }
 
-  grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;"><div class="spinner" style="height: 30px; width: 30px; margin: 0 auto;"></div></div>';
+  const spinnerHtml = '<div class="loading-inline" style="grid-column: 1/-1;"><div class="spinner" style="height: 30px; width: 30px; margin: 0 auto;"></div></div>';
+  grid.innerHTML = spinnerHtml;
+  tbody.innerHTML = '<tr><td colspan="5" class="loading-inline"><div class="spinner" style="height: 30px; width: 30px; margin: 0 auto;"></div></td></tr>';
 
   try {
     const res = await spotifyFetch(`/me/top/artists?time_range=${currentRange}&limit=50`);
@@ -680,37 +685,57 @@ async function loadTopArtists(forceReload = false) {
   } catch (err) {
     console.error('Error fetching top artists:', err);
     grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;">Failed to load artists. Please try again.</div>';
+    tbody.innerHTML = '<tr><td colspan="5" class="loading-inline">Failed to load artists. Please try again.</td></tr>';
   }
 }
 
 function renderTopArtists(data) {
   const grid = document.getElementById('top-artists-grid');
-  grid.innerHTML = '';
+  const tbody = document.getElementById('top-artists-table-body');
+  const listPanel = document.getElementById('top-artists-list-panel');
 
   if (!data || !data.items || data.items.length === 0) {
-    grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;">No artists found for this period. Keep listening!</div>';
+    const emptyMsg = 'No artists found for this period. Keep listening!';
+    grid.innerHTML = `<div class="loading-inline" style="grid-column: 1/-1;">${emptyMsg}</div>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="loading-inline">${emptyMsg}</td></tr>`;
     return;
   }
 
   // Filter items based on active artist filter query
   const query = artistFilter.toLowerCase().trim();
   const filteredItems = query
-    ? data.items.filter(artist => 
-        artist.name.toLowerCase().includes(query) || 
+    ? data.items.filter(artist =>
+        artist.name.toLowerCase().includes(query) ||
         artist.genres.some(genre => genre.toLowerCase().includes(query))
       )
     : data.items;
 
   if (filteredItems.length === 0) {
-    grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;">No artists match your search or filter criteria.</div>';
+    const emptyMsg = 'No artists match your search or filter criteria.';
+    grid.innerHTML = `<div class="loading-inline" style="grid-column: 1/-1;">${emptyMsg}</div>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="loading-inline">${emptyMsg}</td></tr>`;
     return;
   }
 
-  filteredItems.forEach((artist, index) => {
+  if (currentView === 'grid') {
+    grid.classList.remove('hidden');
+    listPanel.classList.add('hidden');
+    renderArtistsGrid(grid, filteredItems, data.items);
+  } else {
+    grid.classList.add('hidden');
+    listPanel.classList.remove('hidden');
+    renderArtistsList(tbody, filteredItems, data.items);
+  }
+}
+
+function renderArtistsGrid(grid, filteredItems, allItems) {
+  grid.innerHTML = '';
+
+  filteredItems.forEach((artist) => {
     // Find index of the original item to keep the rank correct
-    const originalRank = data.items.findIndex(a => a.id === artist.id) + 1;
-    const photo = artist.images && artist.images.length > 0 
-      ? artist.images[0].url 
+    const originalRank = allItems.findIndex(a => a.id === artist.id) + 1;
+    const photo = artist.images && artist.images.length > 0
+      ? artist.images[0].url
       : 'https://via.placeholder.com/150';
     const mainGenre = artist.genres && artist.genres.length > 0 ? artist.genres[0] : 'Various';
     const spotifyUrl = artist.external_urls.spotify;
@@ -743,6 +768,43 @@ function renderTopArtists(data) {
       </div>
     `;
     grid.appendChild(div);
+  });
+}
+
+function renderArtistsList(tbody, filteredItems, allItems) {
+  tbody.innerHTML = '';
+
+  filteredItems.forEach((artist) => {
+    const originalRank = allItems.findIndex(a => a.id === artist.id) + 1;
+    const photo = artist.images && artist.images.length > 0
+      ? artist.images[0].url
+      : 'https://via.placeholder.com/48';
+    const mainGenre = artist.genres && artist.genres.length > 0 ? artist.genres[0] : 'Various';
+    const spotifyUrl = artist.external_urls.spotify;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${originalRank}</td>
+      <td>
+        <div class="track-row-cell">
+          <img class="track-row-cover" src="${photo}" alt="${artist.name}" style="border-radius: 50%;">
+          <div class="track-row-details">
+            <a class="track-row-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer">${artist.name}</a>
+          </div>
+        </div>
+      </td>
+      <td style="text-transform: capitalize;">${mainGenre}</td>
+      <td>${formatFollowers(artist.followers.total)}</td>
+      <td style="text-align: right;">
+        <div class="popularity-info" style="justify-content: flex-end;">
+          <div class="popularity-meter" title="${artist.popularity}% popularity">
+            <div class="popularity-fill" style="width: ${artist.popularity}%"></div>
+          </div>
+          <span class="popularity-val">${artist.popularity}%</span>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
   });
 }
 
@@ -909,11 +971,17 @@ function renderAnalysisTab() {
     popularitySource.textContent = `top 50 songs (${rangeLabel})`;
   }
 
+  const quadrantSource = document.getElementById('analysis-quadrant-source');
+  if (quadrantSource) {
+    quadrantSource.textContent = `top 50 songs (${rangeLabel})`;
+  }
+
   // Draw the additional charts on this tab!
   renderHourlyActivityChart(appData.recentlyPlayed);
 
   const activeTracks = appData.topTracks[currentRange] || appData.topTracks['medium_term'];
   renderPopularityDistribution(activeTracks);
+  renderPopularityRankQuadrant(activeTracks);
 }
 
 function renderGenreDonut(sortedGenres, totalHits) {
@@ -1244,23 +1312,23 @@ function renderHourlyActivityChart(recent) {
     const x = hour * (barWidth + gap) + 5;
     const barHeight = (count / maxCount) * 115; // Max height 115px
     const y = 130 - barHeight;
-    
+
     const barColor = count > 0 ? 'var(--accent)' : 'var(--line-strong)';
-    const hoverTitle = `${String(hour).padStart(2, '0')}:00 - ${count} play${count !== 1 ? 's' : ''}`;
-    
+
     svgContent += `
-      <rect 
-        x="${x}" y="${y}" 
-        width="${barWidth}" height="${barHeight}" 
-        rx="3" ry="3" 
-        fill="${barColor}" 
-        opacity="0.8" 
+      <rect
+        class="hourly-bar"
+        data-hour="${hour}"
+        data-count="${count}"
+        x="${x}" y="${y}"
+        width="${barWidth}" height="${barHeight}"
+        rx="3" ry="3"
+        fill="${barColor}"
+        opacity="0.8"
         style="transition: all 0.2s ease-in-out; cursor: pointer;"
         onmouseover="this.setAttribute('opacity', '1'); this.setAttribute('fill', 'var(--accent-bright)')"
         onmouseout="this.setAttribute('opacity', '0.8'); this.setAttribute('fill', '${barColor}')"
-      >
-        <title>${hoverTitle}</title>
-      </rect>
+      ></rect>
     `;
   });
 
@@ -1269,11 +1337,11 @@ function renderHourlyActivityChart(recent) {
   labels.forEach(hour => {
     const x = hour * (barWidth + gap) + 5 + (barWidth / 2);
     svgContent += `
-      <text 
-        x="${x}" y="150" 
-        fill="var(--dim)" 
-        font-size="10" 
-        font-family="var(--mono)" 
+      <text
+        x="${x}" y="150"
+        fill="var(--dim)"
+        font-size="10"
+        font-family="var(--mono)"
         text-anchor="middle"
       >${String(hour).padStart(2, '0')}</text>
     `;
@@ -1281,6 +1349,38 @@ function renderHourlyActivityChart(recent) {
 
   svgContent += `</svg>`;
   container.innerHTML = svgContent;
+
+  attachChartTooltip(container, container.querySelectorAll('.hourly-bar'), (bar) => {
+    const hour = bar.getAttribute('data-hour');
+    const count = bar.getAttribute('data-count');
+    return `${String(hour).padStart(2, '0')}:00 — ${count} play${count !== '1' ? 's' : ''}`;
+  });
+}
+
+// Wires up a floating tooltip that follows the mouse over a set of SVG shapes.
+// getLabel(el) returns the text to show for the hovered element.
+function attachChartTooltip(container, elements, getLabel) {
+  let tooltip = container.querySelector('.chart-tooltip');
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.className = 'chart-tooltip hidden';
+    container.appendChild(tooltip);
+  }
+
+  elements.forEach((el) => {
+    el.addEventListener('mouseenter', () => {
+      tooltip.textContent = getLabel(el);
+      tooltip.classList.remove('hidden');
+    });
+    el.addEventListener('mousemove', (e) => {
+      const rect = container.getBoundingClientRect();
+      tooltip.style.left = `${e.clientX - rect.left}px`;
+      tooltip.style.top = `${e.clientY - rect.top}px`;
+    });
+    el.addEventListener('mouseleave', () => {
+      tooltip.classList.add('hidden');
+    });
+  });
 }
 
 // RENDER POPULARITY DISTRIBUTION CHART
@@ -1355,6 +1455,79 @@ function renderPopularityDistribution(topTracks) {
       </div>
     </div>
   `;
+}
+
+// RENDER POPULARITY VS PERSONAL RANK QUADRANT CHART
+// X = Spotify's global popularity score (mainstream-ness). Y = your rank within
+// this list (rank 1 at the top). Splits into four quadrants: mainstream
+// favourites, personal gems (underground but high-ranked for you), background
+// hits (popular but lower-ranked), and deep cuts.
+function renderPopularityRankQuadrant(topTracks) {
+  const container = document.getElementById('popularity-rank-quadrant-container');
+  if (!container) return;
+
+  if (!topTracks || !topTracks.items || topTracks.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">Not enough track data to plot.</div>';
+    return;
+  }
+
+  const items = topTracks.items;
+  const total = items.length;
+  const width = 560;
+  const height = 320;
+  const padding = 36;
+  const plotW = width - padding * 2;
+  const plotH = height - padding * 2;
+  const midX = padding + plotW / 2;
+  const midY = padding + plotH / 2;
+
+  const points = items.map((track, index) => {
+    const rank = index + 1;
+    const x = padding + (track.popularity / 100) * plotW;
+    // Rank 1 plots at the top of the chart, rank `total` at the bottom.
+    const y = total > 1 ? padding + ((rank - 1) / (total - 1)) * plotH : midY;
+    return { x, y, track, rank };
+  });
+
+  let svg = `<svg viewBox="0 0 ${width} ${height}" style="width: 100%; height: auto; overflow: visible;">`;
+
+  // Quadrant background tints
+  svg += `<rect x="${padding}" y="${padding}" width="${plotW / 2}" height="${plotH / 2}" fill="var(--accent-soft)" opacity="0.5" />`;
+  svg += `<rect x="${midX}" y="${padding}" width="${plotW / 2}" height="${plotH / 2}" fill="var(--green)" opacity="0.07" />`;
+
+  // Divider lines
+  svg += `<line x1="${midX}" y1="${padding}" x2="${midX}" y2="${height - padding}" stroke="var(--line-strong)" stroke-dasharray="4,4" />`;
+  svg += `<line x1="${padding}" y1="${midY}" x2="${width - padding}" y2="${midY}" stroke="var(--line-strong)" stroke-dasharray="4,4" />`;
+  svg += `<rect x="${padding}" y="${padding}" width="${plotW}" height="${plotH}" fill="none" stroke="var(--line)" />`;
+
+  // Quadrant labels — sit in the margins above/below the plot rect so they
+  // never collide with dots plotted right at the corners (e.g. rank #1 at 100% popularity).
+  svg += `<text x="${padding + 8}" y="${padding - 12}" fill="var(--accent-bright)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">PERSONAL GEMS</text>`;
+  svg += `<text x="${width - padding - 8}" y="${padding - 12}" text-anchor="end" fill="var(--green)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">MAINSTREAM FAVES</text>`;
+  svg += `<text x="${padding + 8}" y="${height - padding + 18}" fill="var(--dim)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">DEEP CUTS</text>`;
+  svg += `<text x="${width - padding - 8}" y="${height - padding + 18}" text-anchor="end" fill="var(--dim)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">BACKGROUND HITS</text>`;
+
+  // Axis labels
+  svg += `<text x="${width / 2}" y="${height - 4}" text-anchor="middle" fill="var(--dim)" font-size="10" font-family="var(--mono)">POPULARITY →</text>`;
+  svg += `<text x="14" y="${height / 2}" text-anchor="middle" fill="var(--dim)" font-size="10" font-family="var(--mono)" transform="rotate(-90 14 ${height / 2})">HIGHER PERSONAL RANK →</text>`;
+
+  points.forEach((p) => {
+    svg += `<circle class="quadrant-dot" data-rank="${p.rank}" data-name="${escapeHtml(p.track.name)}" data-popularity="${p.track.popularity}" cx="${p.x}" cy="${p.y}" r="5" fill="var(--accent)" opacity="0.85" stroke="var(--bg)" stroke-width="1" style="cursor: pointer;"></circle>`;
+  });
+
+  svg += `</svg>`;
+  container.innerHTML = svg;
+
+  attachChartTooltip(container, container.querySelectorAll('.quadrant-dot'), (dot) => {
+    const rank = dot.getAttribute('data-rank');
+    const name = dot.getAttribute('data-name');
+    const popularity = dot.getAttribute('data-popularity');
+    return `#${rank} ${name} — ${popularity}% popularity`;
+  });
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // PWA install support — only caches the static shell, see sw.js.
