@@ -1,4 +1,4 @@
-const CACHE_NAME = 'soundtracks-shell-v1'
+const CACHE_NAME = 'soundtracks-shell-v2'
 
 // Resolve shell URLs relative to the service worker's own scope so this
 // works whether the app is served from the domain root (local dev) or a
@@ -24,17 +24,22 @@ self.addEventListener('activate', (event) => {
 // Only the static shell is cacheable. Everything else — Spotify's own
 // accounts.spotify.com/api.spotify.com calls — is cross-origin and never
 // matches SHELL_URLS, so it always passes straight through to the network.
+//
+// Network-first: always prefer a fresh copy so a deploy is visible on the
+// very next load, and only fall back to the cached shell when actually
+// offline. (A cache-first/stale-while-revalidate strategy here previously
+// let an old app.js and a new index.html get served together whenever
+// CACHE_NAME wasn't bumped on a deploy, crashing on the DOM mismatch.)
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
   if (event.request.method !== 'GET' || !SHELL_URLS.includes(url.pathname)) return
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request).then((response) => {
+    fetch(event.request)
+      .then((response) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()))
         return response
       })
-      return cached || fetchPromise
-    }),
+      .catch(() => caches.match(event.request)),
   )
 })
