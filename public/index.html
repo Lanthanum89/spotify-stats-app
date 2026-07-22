@@ -206,40 +206,6 @@
           </div>
         </div>
 
-        <div class="grid-layout cols-3 margin-top">
-          
-          <!-- QUICK STATS CARDS -->
-          <div class="stats-card">
-            <div class="card-icon">
-              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#1DB954" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-            </div>
-            <div class="card-data">
-              <span class="card-value" id="stat-recent-playtime">0 mins</span>
-              <span class="card-label">Playtime (Last 50 Songs)</span>
-            </div>
-          </div>
-
-          <div class="stats-card">
-            <div class="card-icon">
-              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#1DB954" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
-            </div>
-            <div class="card-data">
-              <span class="card-value" id="stat-favorite-track">Loading...</span>
-              <span class="card-label">Top Track (6 months)</span>
-            </div>
-          </div>
-
-          <div class="stats-card">
-            <div class="card-icon">
-              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#1DB954" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-            </div>
-            <div class="card-data">
-              <span class="card-value" id="stat-favorite-artist">Loading...</span>
-              <span class="card-label">Top Artist (6 months)</span>
-            </div>
-          </div>
-        </div>
-
         <div class="grid-layout cols-2 margin-top">
           <!-- UP NEXT QUEUE PANEL -->
           <div class="panel">
@@ -273,6 +239,7 @@
 
           <!-- TOP SONGS TEASER -->
           <div class="panel">
+            <span class="panel-kicker">LAST 30 DAYS</span>
             <h3>Current Favourites</h3>
             <div id="overview-tracks-list" class="mini-tracks-list">
               <!-- JS filled -->
