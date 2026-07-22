@@ -323,6 +323,7 @@ body::after {
 
 .grid-layout { display: grid; gap: 18px; }
 .cols-3 { grid-template-columns: repeat(3, 1fr); }
+.cols-4 { grid-template-columns: repeat(4, 1fr); }
 .cols-2 { grid-template-columns: repeat(2, 1fr); }
 .cols-3-1 { grid-template-columns: minmax(0, 2.15fr) minmax(280px, 0.85fr); }
 
@@ -522,7 +523,7 @@ body::after {
 
 @media (max-width: 1050px) {
   .cols-3-1, .genre-visual { grid-template-columns: 1fr; }
-  .cols-3, .genre-metrics { grid-template-columns: repeat(2, 1fr); }
+  .cols-3, .cols-4, .genre-metrics { grid-template-columns: repeat(2, 1fr); }
   .genre-donut { max-width: 250px; }
 }
 
@@ -947,7 +948,6 @@ body::after {
 }
 
 .now-playing-body { align-items: center; display: flex; gap: 18px; margin-top: 6px; }
-.now-playing-cover { border-radius: 8px; flex-shrink: 0; height: 64px; object-fit: cover; width: 64px; }
 .now-playing-info { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .now-playing-title {
   color: var(--text);
@@ -988,7 +988,6 @@ body::after {
 }
 
 @media (max-width: 560px) {
-  .now-playing-cover { height: 52px; width: 52px; }
   .now-playing-panel { padding: 18px; }
 }
 
@@ -999,11 +998,26 @@ body::after {
 .main-content:has(#tab-overview.active) { padding-top: 16px; padding-bottom: 16px; }
 #tab-overview .grid-layout { gap: 10px; }
 #tab-overview .margin-top { margin-top: 10px; }
-#tab-overview .now-playing-panel { padding: 12px 18px; }
-#tab-overview .now-playing-cover { height: 48px; width: 48px; }
-#tab-overview .panel:not(.now-playing-panel) { padding: 14px 18px; }
+#tab-overview .now-playing-panel { padding: 16px 22px; }
+#tab-overview .now-playing-title { font-size: 1.35rem; }
+#tab-overview .now-playing-artist { font-size: 1rem; }
+#tab-overview .panel:not(.now-playing-panel):not(.now-playing-art-panel) { padding: 14px 16px; }
 #tab-overview .panel h3 { font-size: 1rem; margin-bottom: 8px; }
 #tab-overview .panel .panel-kicker { display: block; margin-bottom: 2px; }
 #tab-overview .mini-track-item { padding: 4px 0 6px; }
+
+/* Big cover-art tile — takes the Top Genres panel's old slot in the teaser
+   row, showing the currently-playing track's artwork large since Now
+   Playing's own inline cover was dropped in favour of this. */
+.now-playing-art-panel {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 !important;
+}
+.now-playing-cover-large { height: 100%; object-fit: cover; width: 100%; }
+.now-playing-art-placeholder { align-items: center; color: var(--dim); display: flex; justify-content: center; }
+#tab-overview .mini-track-cover { height: 34px; width: 34px; }
 #tab-overview .btn-sm.margin-top { margin-top: 8px; }
 
