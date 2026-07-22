@@ -316,10 +316,9 @@
       <!-- TAB 4: ANALYSIS -->
       <section id="tab-analysis" class="tab-pane">
         <p class="section-desc">
-          Genre and popularity charts below use the range selected above (Spotify computes these over your real listening
-          history). The plays/hours/average metrics and the hourly activity chart always reflect your <strong>last 50
-          streams</strong> — Spotify's API doesn't expose more play history than that, so those don't change with the range
-          selector.
+          The plays/hours/average metrics and the hourly activity chart below always reflect your <strong>last 50
+          streams</strong> — Spotify's API doesn't expose more play history than that. The genre, popularity, and quadrant
+          charts further down use a selectable range instead, since Spotify computes those over your real listening history.
         </p>
         <div class="genre-metrics">
           <div class="metric-block">
@@ -350,6 +349,10 @@
               <span class="metric-label">Unique genres (range)</span>
             </div>
           </div>
+        </div>
+        <div class="analysis-range-row">
+          <span class="panel-kicker">RANGE FOR GENRE / POPULARITY / QUADRANT CHARTS BELOW</span>
+          <div id="analysis-time-filter-slot"></div>
         </div>
         <div class="grid-layout cols-3-1">
           <div class="panel">
