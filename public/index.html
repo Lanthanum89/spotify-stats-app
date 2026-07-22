@@ -236,15 +236,6 @@
               </div>
               <button class="btn btn-secondary btn-sm margin-top" onclick="switchTab('recent')">See Recently Played</button>
             </div>
-
-            <div class="panel">
-              <span class="panel-kicker">LAST 30 DAYS</span>
-              <h3>Current Favourites</h3>
-              <div id="overview-tracks-list" class="mini-tracks-list">
-                <!-- JS filled -->
-              </div>
-              <button class="btn btn-secondary btn-sm margin-top" onclick="switchTab('tracks')">See Top Songs</button>
-            </div>
           </div>
         </div>
       </section>
@@ -399,7 +390,6 @@
 
         <div class="analysis-range-row margin-top">
           <span class="analysis-section-title">Your Top 50 (Selected Range)</span>
-          <div id="analysis-time-filter-slot"></div>
         </div>
 
         <div class="grid-layout cols-3-1">
@@ -411,6 +401,11 @@
               </div>
               <span id="analysis-genres-source" class="data-source">top 50 artist tags</span>
             </div>
+            <div class="card-filter-container" style="margin-bottom: 10px;">
+              <button class="card-time-filter-btn" data-card="genres" data-range="short_term">4w</button>
+              <button class="card-time-filter-btn active" data-card="genres" data-range="medium_term">6m</button>
+              <button class="card-time-filter-btn" data-card="genres" data-range="long_term">All</button>
+            </div>
             <p class="section-desc">Share of genre tags associated with your top artists. One artist may contribute to multiple genres.</p>
             <div class="genre-visual">
               <div id="genre-donut" class="genre-donut" aria-label="Genre distribution pie chart"></div>
@@ -420,6 +415,11 @@
           <div class="panel">
             <span class="panel-kicker">PROFILE / SIGNAL</span>
             <h3>Listening Profile</h3>
+            <div class="card-filter-container" style="margin-bottom: 10px;">
+              <button class="card-time-filter-btn" data-card="listening-profile" data-range="short_term">4w</button>
+              <button class="card-time-filter-btn active" data-card="listening-profile" data-range="medium_term">6m</button>
+              <button class="card-time-filter-btn" data-card="listening-profile" data-range="long_term">All</button>
+            </div>
             <div class="taste-analysis-card">
               <div id="taste-title" class="taste-title">Dynamic Eclectic</div>
               <p id="taste-description" class="taste-desc">Analyzing...</p>
@@ -451,6 +451,11 @@
               </div>
               <span id="analysis-popularity-source" class="data-source">top 50 songs</span>
             </div>
+            <div class="card-filter-container" style="margin-bottom: 10px;">
+              <button class="card-time-filter-btn" data-card="track-popularity" data-range="short_term">4w</button>
+              <button class="card-time-filter-btn active" data-card="track-popularity" data-range="medium_term">6m</button>
+              <button class="card-time-filter-btn" data-card="track-popularity" data-range="long_term">All</button>
+            </div>
             <p class="section-desc">Breakdown of how mainstream or niche your current favourite songs are.</p>
             <div id="popularity-distribution-container" class="chart-container" style="display: flex; flex-direction: column; gap: 14px; padding-top: 10px;">
               <div class="loading-inline">Analysing track indexes...</div>
@@ -464,6 +469,11 @@
                 <h3>Artist Popularity Distribution</h3>
               </div>
               <span id="analysis-artist-popularity-source" class="data-source">top 50 artists</span>
+            </div>
+            <div class="card-filter-container" style="margin-bottom: 10px;">
+              <button class="card-time-filter-btn" data-card="artist-popularity" data-range="short_term">4w</button>
+              <button class="card-time-filter-btn active" data-card="artist-popularity" data-range="medium_term">6m</button>
+              <button class="card-time-filter-btn" data-card="artist-popularity" data-range="long_term">All</button>
             </div>
             <p class="section-desc">Breakdown of how mainstream or niche your current favourite artists are.</p>
             <div id="artist-popularity-distribution-container" class="chart-container" style="display: flex; flex-direction: column; gap: 14px; padding-top: 10px;">
@@ -482,6 +492,11 @@
               </div>
               <span id="analysis-duration-source" class="data-source">top 50 songs</span>
             </div>
+            <div class="card-filter-container" style="margin-bottom: 10px;">
+              <button class="card-time-filter-btn" data-card="duration" data-range="short_term">4w</button>
+              <button class="card-time-filter-btn active" data-card="duration" data-range="medium_term">6m</button>
+              <button class="card-time-filter-btn" data-card="duration" data-range="long_term">All</button>
+            </div>
             <p class="section-desc">How long your favourite songs typically run.</p>
             <div id="duration-distribution-container" class="chart-container" style="display: flex; flex-direction: column; gap: 14px; padding-top: 10px;">
               <div class="loading-inline">Measuring track lengths...</div>
@@ -495,6 +510,11 @@
                 <h3>Top Contributing Artists</h3>
               </div>
               <span id="analysis-contributing-source" class="data-source">top 50 songs</span>
+            </div>
+            <div class="card-filter-container" style="margin-bottom: 10px;">
+              <button class="card-time-filter-btn" data-card="contributing" data-range="short_term">4w</button>
+              <button class="card-time-filter-btn active" data-card="contributing" data-range="medium_term">6m</button>
+              <button class="card-time-filter-btn" data-card="contributing" data-range="long_term">All</button>
             </div>
             <p class="section-desc">Which artists show up most often across your top tracks (including features).</p>
             <div id="top-contributing-artists-container" class="chart-container">
@@ -514,6 +534,11 @@
               </div>
               <span id="analysis-quadrant-source" class="data-source">top 50 songs</span>
             </div>
+            <div class="card-filter-container" style="margin-bottom: 10px;">
+              <button class="card-time-filter-btn" data-card="track-quadrant" data-range="short_term">4w</button>
+              <button class="card-time-filter-btn active" data-card="track-quadrant" data-range="medium_term">6m</button>
+              <button class="card-time-filter-btn" data-card="track-quadrant" data-range="long_term">All</button>
+            </div>
             <p class="section-desc">Each dot is one of your top tracks: how mainstream it is against how highly you personally rank it. Hover a dot for details.</p>
             <div id="popularity-rank-quadrant-container" class="chart-container" style="position: relative;">
               <div class="loading-inline">Plotting quadrant...</div>
@@ -527,6 +552,11 @@
                 <h3>Artists: Popularity vs. Your Rank</h3>
               </div>
               <span id="analysis-artist-quadrant-source" class="data-source">top 50 artists</span>
+            </div>
+            <div class="card-filter-container" style="margin-bottom: 10px;">
+              <button class="card-time-filter-btn" data-card="artist-quadrant" data-range="short_term">4w</button>
+              <button class="card-time-filter-btn active" data-card="artist-quadrant" data-range="medium_term">6m</button>
+              <button class="card-time-filter-btn" data-card="artist-quadrant" data-range="long_term">All</button>
             </div>
             <p class="section-desc">Same idea, for your top artists: how mainstream they are against how highly you personally rank them.</p>
             <div id="artist-rank-quadrant-container" class="chart-container" style="position: relative;">
@@ -544,6 +574,11 @@
               </div>
               <span id="analysis-duration-quadrant-source" class="data-source">top 50 songs</span>
             </div>
+            <div class="card-filter-container" style="margin-bottom: 10px;">
+              <button class="card-time-filter-btn" data-card="duration-quadrant" data-range="short_term">4w</button>
+              <button class="card-time-filter-btn active" data-card="duration-quadrant" data-range="medium_term">6m</button>
+              <button class="card-time-filter-btn" data-card="duration-quadrant" data-range="long_term">All</button>
+            </div>
             <p class="section-desc">Are your mainstream favourites long epics or quick hits? Track length against popularity.</p>
             <div id="duration-popularity-quadrant-container" class="chart-container" style="position: relative;">
               <div class="loading-inline">Plotting quadrant...</div>
@@ -557,6 +592,11 @@
                 <h3>Artists: Followers vs. Popularity</h3>
               </div>
               <span id="analysis-followers-quadrant-source" class="data-source">top 50 artists</span>
+            </div>
+            <div class="card-filter-container" style="margin-bottom: 10px;">
+              <button class="card-time-filter-btn" data-card="followers-quadrant" data-range="short_term">4w</button>
+              <button class="card-time-filter-btn active" data-card="followers-quadrant" data-range="medium_term">6m</button>
+              <button class="card-time-filter-btn" data-card="followers-quadrant" data-range="long_term">All</button>
             </div>
             <p class="section-desc">Follower count (relative, log scale) against popularity — legacy fanbases vs. artists breaking out right now.</p>
             <div id="followers-popularity-quadrant-container" class="chart-container" style="position: relative;">
