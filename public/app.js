@@ -514,7 +514,6 @@ async function loadDashboard() {
 function renderOverview() {
   if (!appData.profile || !appData.recentlyPlayed) return;
 
-  const profile = appData.profile;
   const recent = appData.recentlyPlayed;
   const topTracks = appData.topTracks['medium_term'];
   const topArtists = appData.topArtists['medium_term'];
@@ -542,17 +541,7 @@ function renderOverview() {
     document.getElementById('stat-favorite-artist').textContent = 'None';
   }
 
-  // 3. Profile Card Details
-  const avatarUrl = profile.images && profile.images.length > 0 
-    ? profile.images[0].url 
-    : 'https://via.placeholder.com/150';
-  document.getElementById('profile-img-large').src = avatarUrl;
-  document.getElementById('profile-name-large').textContent = profile.display_name;
-  document.getElementById('profile-followers').textContent = `${profile.followers.total.toLocaleString('en-GB')} followers`;
-  document.getElementById('profile-country').textContent = profile.country;
-  document.getElementById('profile-product').textContent = profile.product;
-
-  // 4. Recently Played Teaser (Limit to 2, keeps Overview fitting one screen)
+  // 3. Recently Played Teaser (Limit to 2, keeps Overview fitting one screen)
   const recentList = document.getElementById('overview-recent-list');
   recentList.innerHTML = '';
   if (recent && recent.items) {
@@ -780,6 +769,7 @@ function hideSidebarMiniPlayer() {
   const list = document.getElementById('mini-player-queue');
   if (list) { list.innerHTML = ''; list.classList.add('hidden'); }
   nowPlayingPollCount = 0;
+  renderOverviewQueue([]);
 }
 
 function updateMiniPlayerPlayIcon() {
@@ -799,10 +789,44 @@ async function refreshSidebarQueue(force) {
     const response = await spotifyFetch('/me/player/queue');
     const data = await response.json();
     renderSidebarQueue(data.queue || []);
+    renderOverviewQueue(data.queue || []);
   } catch (err) {
     // Needs user-read-playback-state (older sessions won't have it yet) —
     // just leave the queue preview empty rather than erroring.
   }
+}
+
+// "Up Next" panel on the Overview tab — a roomier version of the sidebar's
+// queue preview, reusing the same mini-track-item markup as the other
+// Overview teaser lists.
+function renderOverviewQueue(queue) {
+  const list = document.getElementById('overview-queue-list');
+  if (!list) return;
+
+  const upcoming = queue.slice(0, 5);
+  if (upcoming.length === 0) {
+    list.innerHTML = '<div class="loading-inline">Nothing queued right now.</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  upcoming.forEach((track) => {
+    const cover = track.album && track.album.images && track.album.images.length > 0
+      ? track.album.images[0].url
+      : 'https://via.placeholder.com/44';
+    const artistsName = (track.artists || []).map((a) => a.name).join(', ');
+
+    const div = document.createElement('div');
+    div.className = 'mini-track-item';
+    div.innerHTML = `
+      <img class="mini-track-cover" src="${cover}" alt="${track.name}">
+      <div class="mini-track-info">
+        <span class="mini-track-title">${track.name}</span>
+        <span class="mini-track-artist">${artistsName}</span>
+      </div>
+    `;
+    list.appendChild(div);
+  });
 }
 
 function renderSidebarQueue(queue) {

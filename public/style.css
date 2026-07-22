@@ -351,14 +351,6 @@ body::after {
 .card-value { color: var(--text); font: 600 1.35rem var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-label { color: var(--muted); font-size: 0.85rem; margin-top: 5px; }
 
-.profile-details-large { display: flex; gap: 26px; }
-.avatar-large { border: 1px solid var(--line-strong); border-radius: 12px; height: 130px; object-fit: cover; width: 130px; }
-.profile-text-large { display: flex; flex-direction: column; justify-content: center; }
-.profile-text-large h2 { font: 600 1.65rem var(--mono); }
-.profile-note { color: var(--muted); font-size: 0.9rem; line-height: 1.55; margin-top: 7px; }
-.pill-group { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
-.pill { border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font: 0.75rem var(--mono); padding: 5px 10px; }
-.pill.premium { border-color: rgba(86, 201, 139, 0.28); color: var(--green); }
 
 .mini-tracks-list, .mini-list { display: flex; flex-direction: column; gap: 7px; }
 .mini-track-item { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 12px; padding: 7px 0 11px; }
@@ -547,7 +539,6 @@ body::after {
   .metric-block + .metric-block { border-left: 0; border-top: 1px solid var(--line); }
   .content-header { align-items: flex-start; flex-wrap: wrap; gap: 14px; }
   .header-controls { flex-wrap: wrap; width: 100%; }
-  .profile-details-large { align-items: flex-start; flex-direction: column; }
   .filter-bar { flex-wrap: wrap; gap: 12px; }
   .search-input-wrapper { max-width: none; width: 100%; }
   .view-toggle-btn, .time-filter-btn { padding: 10px 12px; }
@@ -1013,10 +1004,6 @@ body::after {
 #tab-overview .stats-card { gap: 12px; padding: 12px; }
 #tab-overview .panel:not(.now-playing-panel) { padding: 14px 18px; }
 #tab-overview .panel h3 { font-size: 1rem; margin-bottom: 8px; }
-#tab-overview .profile-details-large { gap: 14px; }
-#tab-overview .avatar-large { height: 64px; width: 64px; border-radius: 8px; }
-#tab-overview .profile-note { display: none; }
-#tab-overview .pill-group { margin: 6px 0; }
 #tab-overview .mini-track-item { padding: 4px 0 6px; }
 #tab-overview .btn-sm.margin-top { margin-top: 8px; }
 
