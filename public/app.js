@@ -234,35 +234,40 @@ function setupEventListeners() {
     });
   }
 
-  // Sidebar mini player — skip controls (stop propagation so they don't
-  // also trigger the click-anywhere sidebar collapse toggle above)
-  const miniPrev = document.getElementById('mini-player-prev');
-  const miniPlay = document.getElementById('mini-player-play');
-  const miniNext = document.getElementById('mini-player-next');
-  if (miniPrev) {
-    miniPrev.addEventListener('click', (e) => {
-      e.stopPropagation();
-      miniPlayerControl('POST', '/me/player/previous');
-    });
-  }
-  if (miniNext) {
-    miniNext.addEventListener('click', (e) => {
-      e.stopPropagation();
-      miniPlayerControl('POST', '/me/player/next');
-    });
-  }
-  if (miniPlay) {
-    miniPlay.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const wasPlaying = nowPlayingState.isPlaying;
-      // Optimistic flip so the button feels instant instead of waiting on the network.
-      nowPlayingState.isPlaying = !wasPlaying;
-      updateMiniPlayerPlayIcon();
-      const badge = document.getElementById('now-playing-status-badge');
-      if (badge) badge.classList.toggle('hidden', !nowPlayingState.isPlaying);
-      miniPlayerControl('PUT', wasPlaying ? '/me/player/pause' : '/me/player/play');
-    });
-  }
+  // Playback transport controls — sidebar mini player and the Overview Now
+  // Playing panel each get their own set of prev/play/next buttons, wired
+  // up identically (stopPropagation so the sidebar's set doesn't also
+  // trigger the click-anywhere sidebar collapse toggle above).
+  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next }) => {
+    const prevBtn = document.getElementById(prev);
+    const playBtn = document.getElementById(play);
+    const nextBtn = document.getElementById(next);
+
+    if (prevBtn) {
+      prevBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        playbackControl('POST', '/me/player/previous');
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        playbackControl('POST', '/me/player/next');
+      });
+    }
+    if (playBtn) {
+      playBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const wasPlaying = nowPlayingState.isPlaying;
+        // Optimistic flip so the button feels instant instead of waiting on the network.
+        nowPlayingState.isPlaying = !wasPlaying;
+        updateAllPlayIcons();
+        const badge = document.getElementById('now-playing-status-badge');
+        if (badge) badge.classList.toggle('hidden', !nowPlayingState.isPlaying);
+        playbackControl('PUT', wasPlaying ? '/me/player/pause' : '/me/player/play');
+      });
+    }
+  });
 
   // Time Range filters
   document.querySelectorAll('.time-filter-btn').forEach(button => {
@@ -738,17 +743,17 @@ async function renderNowPlayingActive(data) {
   }
 
   renderSidebarMiniPlayer(track, cover, artistsName);
-  updateMiniPlayerPlayIcon();
+  showNowPlayingControls();
+  updateAllPlayIcons();
   nowPlayingPollCount++;
-  refreshSidebarQueue(isNewTrack);
+  refreshQueue(isNewTrack);
 
   updateNowPlayingProgressUI();
 }
 
 // --- SIDEBAR MINI PLAYER ---
 // Compact echo of the Overview Now Playing panel, shown above the user's
-// name in the sidebar footer: cover, track/artist, skip controls, and a
-// small upcoming-queue preview.
+// name in the sidebar footer: cover, track/artist, and skip controls.
 
 function renderSidebarMiniPlayer(track, cover, artistsName) {
   const panel = document.getElementById('sidebar-mini-player');
@@ -766,29 +771,39 @@ function renderSidebarMiniPlayer(track, cover, artistsName) {
 function hideSidebarMiniPlayer() {
   const panel = document.getElementById('sidebar-mini-player');
   if (panel) panel.classList.add('hidden');
-  const list = document.getElementById('mini-player-queue');
-  if (list) { list.innerHTML = ''; list.classList.add('hidden'); }
+  hideNowPlayingControls();
   nowPlayingPollCount = 0;
   renderOverviewQueue([]);
 }
 
-function updateMiniPlayerPlayIcon() {
-  const icon = document.getElementById('mini-player-play-icon');
-  if (!icon) return;
-  icon.innerHTML = nowPlayingState.isPlaying
-    ? '<path d="M6 5h4v14H6zm8 0h4v14h-4z"></path>'
-    : '<path d="M8 5v14l11-7z"></path>';
+function showNowPlayingControls() {
+  const controls = document.getElementById('now-playing-controls');
+  if (controls) controls.classList.remove('hidden');
 }
 
-const MINI_PLAYER_QUEUE_REFRESH_EVERY_N_POLLS = 4; // ~20s at the 5s poll interval
+function hideNowPlayingControls() {
+  const controls = document.getElementById('now-playing-controls');
+  if (controls) controls.classList.add('hidden');
+}
 
-async function refreshSidebarQueue(force) {
-  if (!force && nowPlayingPollCount % MINI_PLAYER_QUEUE_REFRESH_EVERY_N_POLLS !== 0) return;
+function updateAllPlayIcons() {
+  ['mini-player-play-icon', 'now-playing-play-icon'].forEach((id) => {
+    const icon = document.getElementById(id);
+    if (!icon) return;
+    icon.innerHTML = nowPlayingState.isPlaying
+      ? '<path d="M6 5h4v14H6zm8 0h4v14h-4z"></path>'
+      : '<path d="M8 5v14l11-7z"></path>';
+  });
+}
+
+const QUEUE_REFRESH_EVERY_N_POLLS = 4; // ~20s at the 5s poll interval
+
+async function refreshQueue(force) {
+  if (!force && nowPlayingPollCount % QUEUE_REFRESH_EVERY_N_POLLS !== 0) return;
 
   try {
     const response = await spotifyFetch('/me/player/queue');
     const data = await response.json();
-    renderSidebarQueue(data.queue || []);
     renderOverviewQueue(data.queue || []);
   } catch (err) {
     // Needs user-read-playback-state (older sessions won't have it yet) —
@@ -829,29 +844,18 @@ function renderOverviewQueue(queue) {
   });
 }
 
-function renderSidebarQueue(queue) {
-  const list = document.getElementById('mini-player-queue');
-  if (!list) return;
+// Playback transport controls — shared between the sidebar mini player and
+// the Overview Now Playing panel, which each have their own button/error IDs.
+const TRANSPORT_BUTTON_SETS = [
+  { prev: 'mini-player-prev', play: 'mini-player-play', next: 'mini-player-next', error: 'mini-player-error' },
+  { prev: 'now-playing-prev', play: 'now-playing-play', next: 'now-playing-next', error: 'now-playing-controls-error' },
+];
 
-  const upcoming = queue.slice(0, 3);
-  if (upcoming.length === 0) {
-    list.innerHTML = '';
-    list.classList.add('hidden');
-    return;
-  }
-
-  list.classList.remove('hidden');
-  list.innerHTML = upcoming.map((track) => {
-    const artists = (track.artists || []).map((a) => a.name).join(', ');
-    return `<li class="mini-player-queue-item" title="${track.name} — ${artists}">${track.name}</li>`;
-  }).join('');
-}
-
-async function miniPlayerControl(method, path) {
+async function playbackControl(method, path) {
   if (miniPlayerControlPending) return;
   miniPlayerControlPending = true;
-  setMiniPlayerControlsDisabled(true);
-  hideMiniPlayerError();
+  setAllControlsDisabled(true);
+  hideAllControlErrors();
 
   try {
     await SpotifyAuth.apiRequest(path, { method });
@@ -861,40 +865,45 @@ async function miniPlayerControl(method, path) {
     await pollNowPlaying();
   } catch (err) {
     if (err.status === 403) {
-      showMiniPlayerError('Playback control needs Spotify Premium.');
+      showAllControlErrors('Playback control needs Spotify Premium.');
     } else if (err.status === 404) {
-      showMiniPlayerError('No active Spotify device found.');
+      showAllControlErrors('No active Spotify device found.');
     } else {
-      showMiniPlayerError('Playback control failed.');
+      showAllControlErrors('Playback control failed.');
     }
   } finally {
     miniPlayerControlPending = false;
-    setMiniPlayerControlsDisabled(false);
+    setAllControlsDisabled(false);
   }
 }
 
-function setMiniPlayerControlsDisabled(disabled) {
-  ['mini-player-prev', 'mini-player-play', 'mini-player-next'].forEach((id) => {
-    const btn = document.getElementById(id);
-    if (btn) btn.disabled = disabled;
+function setAllControlsDisabled(disabled) {
+  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next }) => {
+    [prev, play, next].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = disabled;
+    });
   });
 }
 
-let miniPlayerErrorTimer = null;
-function showMiniPlayerError(message) {
-  const el = document.getElementById('mini-player-error');
-  if (!el) return;
-  el.textContent = message;
-  el.classList.remove('hidden');
-  if (miniPlayerErrorTimer) clearTimeout(miniPlayerErrorTimer);
-  miniPlayerErrorTimer = setTimeout(hideMiniPlayerError, 4000);
+let controlErrorTimer = null;
+function showAllControlErrors(message) {
+  TRANSPORT_BUTTON_SETS.forEach(({ error }) => {
+    const el = document.getElementById(error);
+    if (!el) return;
+    el.textContent = message;
+    el.classList.remove('hidden');
+  });
+  if (controlErrorTimer) clearTimeout(controlErrorTimer);
+  controlErrorTimer = setTimeout(hideAllControlErrors, 4000);
 }
 
-function hideMiniPlayerError() {
-  const el = document.getElementById('mini-player-error');
-  if (!el) return;
-  el.classList.add('hidden');
-  if (miniPlayerErrorTimer) { clearTimeout(miniPlayerErrorTimer); miniPlayerErrorTimer = null; }
+function hideAllControlErrors() {
+  TRANSPORT_BUTTON_SETS.forEach(({ error }) => {
+    const el = document.getElementById(error);
+    if (el) el.classList.add('hidden');
+  });
+  if (controlErrorTimer) { clearTimeout(controlErrorTimer); controlErrorTimer = null; }
 }
 
 async function fetchNowPlayingContextName(context, contextUri) {
