@@ -198,6 +198,9 @@ function showError(errorType) {
 
 // Setup Event Listeners
 function setupEventListeners() {
+  const retryBtn = document.getElementById('btn-dashboard-retry');
+  if (retryBtn) retryBtn.addEventListener('click', () => loadDashboard());
+
   // Navigation tabs
   document.querySelectorAll('.nav-item').forEach(button => {
     button.addEventListener('click', () => {
@@ -482,7 +485,8 @@ function switchTab(tabId) {
 // Load and cache all initial dashboard data
 async function loadDashboard() {
   showDashboardScreen();
-  
+  hideDashboardError();
+
   try {
     // Fetch profile and recently played immediately. short_term also comes in
     // now (rather than lazily, like other ranges) since the Overview's
@@ -516,8 +520,27 @@ async function loadDashboard() {
 
   } catch (err) {
     console.error('Error fetching dashboard data:', err);
-    logout();
+    // An expired/invalid refresh token is a genuine "you need to log back
+    // in" — spotifyFetch already cleared tokens and swapped to the login
+    // screen for that case. Anything else (a rate limit, a network blip) is
+    // transient and shouldn't cost the user their session — show a retry
+    // instead of logging them out over it.
+    if (!err.isUnauthorized) {
+      showDashboardError('Failed to load your dashboard data. This is usually temporary — try again.');
+    }
   }
+}
+
+function showDashboardError(message) {
+  const banner = document.getElementById('dashboard-error-banner');
+  const text = document.getElementById('dashboard-error-text');
+  if (text) text.textContent = message;
+  if (banner) banner.classList.remove('hidden');
+}
+
+function hideDashboardError() {
+  const banner = document.getElementById('dashboard-error-banner');
+  if (banner) banner.classList.add('hidden');
 }
 
 // RENDER OVERVIEW TAB

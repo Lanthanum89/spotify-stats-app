@@ -151,7 +151,14 @@
 
     <!-- MAIN DASHBOARD CONTENT -->
     <main class="main-content">
-      
+
+      <!-- DASHBOARD LOAD ERROR (transient failures — network blip, rate limit —
+           get a retry here instead of being logged out over it) -->
+      <div id="dashboard-error-banner" class="error-banner hidden">
+        <span id="dashboard-error-text"></span>
+        <button type="button" id="btn-dashboard-retry" class="btn btn-secondary btn-sm">Retry</button>
+      </div>
+
       <!-- TOP NAVIGATION BAR -->
       <header class="content-header">
         <h2 id="current-tab-title">Overview</h2>
