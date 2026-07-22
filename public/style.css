@@ -412,6 +412,12 @@ body::after {
 .popularity-fill { background: var(--accent); height: 100%; }
 
 .artists-grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.tracks-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  margin-top: 10px;
+}
 .artist-card {
   background: rgba(24, 21, 31, 0.45);
   backdrop-filter: blur(12px);
@@ -579,18 +585,6 @@ body::after {
   .artists-grid, .tracks-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
 }
 
-/* Large phones in landscape (e.g. Galaxy S Ultra) are wide enough to miss
-   the portrait/mobile-topbar breakpoint above, so they keep the desktop
-   sidebar layout — but the narrower content width that leaves can tip the
-   tracks grid's auto-fill sizing to a single oversized column while the
-   artists grid (identical minmax) still lands on two. Force both to the
-   same fixed two-column layout so they match. Keyed on max-height rather
-   than width, the standard way to target phones-in-landscape without
-   also catching landscape tablets/laptops. */
-@media (orientation: landscape) and (max-height: 500px) {
-  .artists-grid, .tracks-grid { grid-template-columns: repeat(2, 1fr); }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
@@ -649,12 +643,6 @@ body::after {
   border: 1px solid rgba(170, 150, 216, 0.2);
 }
 
-.tracks-grid {
-  display: grid;
-  gap: 20px;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  margin-top: 10px;
-}
 .track-card {
   background: rgba(24, 21, 31, 0.45);
   backdrop-filter: blur(12px);
