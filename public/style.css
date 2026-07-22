@@ -311,7 +311,6 @@ body::after {
   width: 40px;
 }
 .mini-player-play-btn:hover:not(:disabled) { background: var(--accent-bright); border-color: var(--accent-bright); color: var(--sidebar); }
-.mini-player-shuffle-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-bright); }
 .mini-player-error { color: var(--danger, #e18088); display: block; font-size: 0.65rem; margin-top: 4px; text-align: center; }
 
 /* OVERVIEW NOW PLAYING — full-size transport controls under the progress bar */
@@ -330,16 +329,6 @@ body::after {
   width: 34px;
 }
 .now-playing-play-btn:hover:not(:disabled) { background: var(--accent-bright); color: var(--sidebar); }
-.now-playing-shuffle-btn.active { color: var(--accent-bright); }
-.now-playing-shuffle-btn.active::after {
-  content: '';
-  background: var(--accent-bright);
-  border-radius: 50%;
-  display: block;
-  height: 4px;
-  margin: 3px auto 0;
-  width: 4px;
-}
 .now-playing-controls-error { color: var(--danger, #e18088); display: block; font-size: 0.7rem; text-align: center; width: 100%; }
 
 .main-content { height: 100vh; overflow-y: auto; padding: 34px 42px 60px; }
@@ -564,85 +553,6 @@ body::after {
   text-transform: uppercase;
 }
 
-/* MOBILE NOW PLAYING BAR — fixed bottom transport bar replacing the sidebar's
-   mini player on phones & tablets (where the sidebar itself is hidden).
-   Shown only while something is actively playing (toggled via .hidden). */
-.mobile-player-bar {
-  display: none;
-  flex-direction: column;
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 5;
-  background: var(--sidebar);
-  border-top: 1px solid var(--line);
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.25);
-  padding: 0 12px;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-.mobile-player-info {
-  align-items: center;
-  cursor: pointer;
-  display: flex;
-  gap: 10px;
-  min-width: 0;
-  padding: 10px 4px 0;
-}
-.mobile-player-cover { border-radius: 5px; flex-shrink: 0; height: 36px; object-fit: cover; width: 36px; }
-.mobile-player-text { display: flex; flex-direction: column; min-width: 0; }
-.mobile-player-track { color: var(--text); font-size: 0.82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mobile-player-artist { color: var(--muted); font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.mobile-player-controls { align-items: center; display: flex; justify-content: space-evenly; padding: 6px 0 10px; }
-.mobile-player-btn {
-  align-items: center;
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  display: flex;
-  justify-content: center;
-  padding: 8px;
-  position: relative;
-  transition: var(--transition);
-}
-.mobile-player-btn:hover:not(:disabled) { color: var(--accent-bright); }
-.mobile-player-btn:disabled { cursor: default; opacity: 0.4; }
-.mobile-player-skip-label {
-  bottom: 4px;
-  color: currentColor;
-  font: 600 0.5rem var(--mono);
-  left: 50%;
-  position: absolute;
-  transform: translateX(-50%);
-}
-/* Raised centre play/pause button — pokes above the bar's top edge, echoing
-   a floating-action-button-in-a-notch pattern. */
-.mobile-player-play-btn {
-  align-items: center;
-  background: var(--accent);
-  border-radius: 50%;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-  color: var(--sidebar);
-  display: flex;
-  height: 54px;
-  justify-content: center;
-  top: -22px;
-  width: 54px;
-  z-index: 1;
-}
-.mobile-player-play-btn:hover:not(:disabled) { background: var(--accent-bright); color: var(--sidebar); }
-.mobile-player-error {
-  color: var(--danger, #e18088);
-  display: block;
-  font-size: 0.7rem;
-  padding-bottom: 6px;
-  text-align: center;
-}
-.mobile-player-progress { background: var(--line); height: 3px; overflow: hidden; width: 100%; }
-.mobile-player-progress-fill { background: var(--accent); height: 100%; transition: width 0.4s linear; width: 0; }
-
 @media (max-width: 1050px) {
   .cols-3-1, .genre-visual { grid-template-columns: 1fr; }
   .cols-3, .cols-4, .genre-metrics { grid-template-columns: repeat(2, 1fr); }
@@ -657,12 +567,7 @@ body::after {
   .sidebar { display: none; }
   .mobile-topbar { display: flex; }
   .mobile-nav-drawer { display: flex; }
-  .mobile-player-bar:not(.hidden) { display: flex; }
   .main-content { padding: 20px 16px 50px; }
-  /* !important: beats .main-content:has(#tab-overview.active)'s ID-based
-     selector further down, which would otherwise always win on specificity
-     regardless of media query and clobber this back to 16px on Overview. */
-  .dashboard-layout:has(.mobile-player-bar:not(.hidden)) .main-content { padding-bottom: 130px !important; }
   .grid-layout, .genre-metrics { grid-template-columns: 1fr !important; }
   .metric-block + .metric-block { border-left: 0; border-top: 1px solid var(--line); }
   .content-header { align-items: flex-start; flex-wrap: wrap; gap: 14px; }

@@ -43,13 +43,10 @@ let nowPlayingState = {
   durationMs: 0,
   lastSyncedAt: 0,
   contextUri: null,
-  contextName: null,
-  shuffleState: false
+  contextName: null
 };
 let nowPlayingPollCount = 0;
 let miniPlayerControlPending = false;
-const SEEK_STEP_MS = 30000;
-const RESTART_THRESHOLD_MS = 3000; // tapping "previous" restarts the track past this point, instead of skipping back
 
 // --- Spotify API Helper ---
 // apiPath is a path under https://api.spotify.com/v1 (e.g. '/me/top/tracks?...').
@@ -254,21 +251,19 @@ function setupEventListeners() {
     });
   }
 
-  // Playback transport controls — sidebar mini player, the Overview Now
-  // Playing panel, and the mobile bottom bar each get their own set of
-  // prev/play/next(/shuffle) buttons, wired up identically (stopPropagation
-  // so the sidebar's set doesn't also trigger the click-anywhere sidebar
-  // collapse toggle above).
-  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next, shuffle }) => {
+  // Playback transport controls — sidebar mini player and the Overview Now
+  // Playing panel each get their own set of prev/play/next buttons, wired
+  // up identically (stopPropagation so the sidebar's set doesn't also
+  // trigger the click-anywhere sidebar collapse toggle above).
+  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next }) => {
     const prevBtn = document.getElementById(prev);
     const playBtn = document.getElementById(play);
     const nextBtn = document.getElementById(next);
-    const shuffleBtn = shuffle ? document.getElementById(shuffle) : null;
 
     if (prevBtn) {
       prevBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        handlePreviousOrRestart();
+        playbackControl('POST', '/me/player/previous');
       });
     }
     if (nextBtn) {
@@ -289,42 +284,7 @@ function setupEventListeners() {
         playbackControl('PUT', wasPlaying ? '/me/player/pause' : '/me/player/play');
       });
     }
-    if (shuffleBtn) {
-      shuffleBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleShuffle();
-      });
-    }
   });
-
-  // Mobile bottom bar's ±30s seek buttons (no equivalent on the other two panels).
-  const back30Btn = document.getElementById('mobile-player-back30');
-  const fwd30Btn = document.getElementById('mobile-player-fwd30');
-  if (back30Btn) {
-    back30Btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      seekRelative(-SEEK_STEP_MS);
-    });
-  }
-  if (fwd30Btn) {
-    fwd30Btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      seekRelative(SEEK_STEP_MS);
-    });
-  }
-
-  // Tapping the mobile bar's track info jumps to the Overview tab (mirrors
-  // the sidebar mini player, which doesn't need this since it's not shown there).
-  const mobilePlayerInfo = document.getElementById('mobile-player-info');
-  if (mobilePlayerInfo) {
-    mobilePlayerInfo.addEventListener('click', () => switchTab('overview'));
-    mobilePlayerInfo.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        switchTab('overview');
-      }
-    });
-  }
 
   // Time Range filters
   document.querySelectorAll('.time-filter-btn').forEach(button => {
@@ -635,11 +595,9 @@ function renderOverview() {
 }
 
 // --- NOW PLAYING ---
-// Polls /me/player (rather than /me/player/currently-playing) periodically
-// for the real state — the extra fields cost nothing extra to fetch and
-// /me/player is the only one of the two that reports shuffle_state, which
-// the shuffle toggle needs. Also ticks a local timer between polls so the
-// progress bar advances smoothly without hammering the API every second.
+// Polls /me/player/currently-playing periodically for the real state, and
+// ticks a local timer between polls so the progress bar advances smoothly
+// without hammering the API every second.
 
 function startNowPlayingPolling() {
   stopNowPlayingPolling();
@@ -676,10 +634,10 @@ function handleNowPlayingVisibilityChange() {
 async function pollNowPlaying() {
   let response;
   try {
-    response = await spotifyFetch('/me/player');
+    response = await spotifyFetch('/me/player/currently-playing');
   } catch (err) {
     if (err.status === 403) {
-      // Session was authorised before user-read-playback-state existed —
+      // Session was authorised before user-read-currently-playing existed —
       // needs a fresh login to pick up the new scope.
       stopNowPlayingPolling();
       renderNowPlayingNeedsReconnect();
@@ -711,12 +669,11 @@ async function pollNowPlaying() {
 }
 
 function renderNowPlayingIdle() {
-  nowPlayingState = { trackId: null, isPlaying: false, progressMs: 0, durationMs: 0, lastSyncedAt: 0, contextUri: null, contextName: null, shuffleState: false };
+  nowPlayingState = { trackId: null, isPlaying: false, progressMs: 0, durationMs: 0, lastSyncedAt: 0, contextUri: null, contextName: null };
   document.getElementById('now-playing-status-badge').classList.add('hidden');
   document.getElementById('now-playing-content').innerHTML =
     '<div class="loading-inline">Nothing playing right now. Start a track on Spotify to see it here.</div>';
   hideSidebarMiniPlayer();
-  hideMobilePlayerBar();
 }
 
 function renderNowPlayingNeedsReconnect() {
@@ -724,7 +681,6 @@ function renderNowPlayingNeedsReconnect() {
   document.getElementById('now-playing-content').innerHTML =
     '<div class="loading-inline">Reconnect your Spotify account to enable Now Playing (needs one extra permission).</div>';
   hideSidebarMiniPlayer();
-  hideMobilePlayerBar();
 }
 
 async function renderNowPlayingActive(data) {
@@ -739,7 +695,6 @@ async function renderNowPlayingActive(data) {
   nowPlayingState.durationMs = track.duration_ms || 0;
   nowPlayingState.lastSyncedAt = Date.now();
   nowPlayingState.contextUri = contextUri;
-  nowPlayingState.shuffleState = Boolean(data.shuffle_state);
 
   if (isNewContext) {
     nowPlayingState.contextName = null; // cleared until (if) the fetch below resolves
@@ -779,10 +734,8 @@ async function renderNowPlayingActive(data) {
 
   renderNowPlayingArtTile(cover, track.name);
   renderSidebarMiniPlayer(track, cover, artistsName);
-  renderMobilePlayerBar(track, cover, artistsName);
   showNowPlayingControls();
   updateAllPlayIcons();
-  updateAllShuffleButtons();
   nowPlayingPollCount++;
   refreshQueue(isNewTrack);
 
@@ -813,29 +766,6 @@ function hideSidebarMiniPlayer() {
   hideNowPlayingArtTile();
   nowPlayingPollCount = 0;
   renderOverviewQueue([]);
-}
-
-// --- MOBILE NOW PLAYING BAR ---
-// Fixed bottom transport bar shown on phones/tablets in place of the
-// (hidden) sidebar's mini player: cover, track/artist, and full transport
-// controls (previous/restart, ±30s seek, play/pause, next).
-
-function renderMobilePlayerBar(track, cover, artistsName) {
-  const bar = document.getElementById('mobile-player-bar');
-  if (!bar) return;
-  bar.classList.remove('hidden');
-
-  const coverEl = document.getElementById('mobile-player-cover');
-  const trackEl = document.getElementById('mobile-player-track');
-  const artistEl = document.getElementById('mobile-player-artist');
-  if (coverEl) { coverEl.src = cover; coverEl.alt = track.name; }
-  if (trackEl) { trackEl.textContent = track.name; trackEl.title = track.name; }
-  if (artistEl) { artistEl.textContent = artistsName; artistEl.title = artistsName; }
-}
-
-function hideMobilePlayerBar() {
-  const bar = document.getElementById('mobile-player-bar');
-  if (bar) bar.classList.add('hidden');
 }
 
 // Big cover-art tile on Overview, in the teaser row (replaces the old Top
@@ -869,21 +799,12 @@ function hideNowPlayingControls() {
 }
 
 function updateAllPlayIcons() {
-  ['mini-player-play-icon', 'now-playing-play-icon', 'mobile-player-play-icon'].forEach((id) => {
+  ['mini-player-play-icon', 'now-playing-play-icon'].forEach((id) => {
     const icon = document.getElementById(id);
     if (!icon) return;
     icon.innerHTML = nowPlayingState.isPlaying
       ? '<path d="M6 5h4v14H6zm8 0h4v14h-4z"></path>'
       : '<path d="M8 5v14l11-7z"></path>';
-  });
-}
-
-function updateAllShuffleButtons() {
-  ['mini-player-shuffle', 'now-playing-shuffle'].forEach((id) => {
-    const btn = document.getElementById(id);
-    if (!btn) return;
-    btn.classList.toggle('active', nowPlayingState.shuffleState);
-    btn.setAttribute('aria-pressed', String(nowPlayingState.shuffleState));
   });
 }
 
@@ -935,18 +856,12 @@ function renderOverviewQueue(queue) {
   });
 }
 
-// Playback transport controls — shared between the sidebar mini player, the
-// Overview Now Playing panel, and the mobile bottom bar, each of which has
-// its own button/error IDs. Shuffle only exists on the first two (the
-// mobile bar's compact 5-button layout has no room for it); the mobile
-// bar's ±30s seek buttons are handled separately below since neither of
-// the other two panels has them.
+// Playback transport controls — shared between the sidebar mini player and
+// the Overview Now Playing panel, which each have their own button/error IDs.
 const TRANSPORT_BUTTON_SETS = [
-  { prev: 'mini-player-prev', play: 'mini-player-play', next: 'mini-player-next', shuffle: 'mini-player-shuffle', error: 'mini-player-error' },
-  { prev: 'now-playing-prev', play: 'now-playing-play', next: 'now-playing-next', shuffle: 'now-playing-shuffle', error: 'now-playing-controls-error' },
-  { prev: 'mobile-player-prev', play: 'mobile-player-play', next: 'mobile-player-next', error: 'mobile-player-error' },
+  { prev: 'mini-player-prev', play: 'mini-player-play', next: 'mini-player-next', error: 'mini-player-error' },
+  { prev: 'now-playing-prev', play: 'now-playing-play', next: 'now-playing-next', error: 'now-playing-controls-error' },
 ];
-const SEEK_BUTTON_IDS = ['mobile-player-back30', 'mobile-player-fwd30'];
 
 async function playbackControl(method, path) {
   if (miniPlayerControlPending) return;
@@ -974,48 +889,12 @@ async function playbackControl(method, path) {
   }
 }
 
-// Tapping "previous" restarts the current track if it's already past
-// RESTART_THRESHOLD_MS (matching standard music-player convention), rather
-// than always skipping back to the actual previous track.
-async function handlePreviousOrRestart() {
-  if (getDisplayedProgressMs() > RESTART_THRESHOLD_MS) {
-    await seekTo(0);
-  } else {
-    await playbackControl('POST', '/me/player/previous');
-  }
-}
-
-async function seekTo(positionMs) {
-  const clamped = Math.max(0, Math.min(positionMs, nowPlayingState.durationMs || positionMs));
-  // Optimistic UI update; playbackControl's pollNowPlaying resyncs after.
-  nowPlayingState.progressMs = clamped;
-  nowPlayingState.lastSyncedAt = Date.now();
-  updateNowPlayingProgressUI();
-  await playbackControl('PUT', `/me/player/seek?position_ms=${clamped}`);
-}
-
-async function seekRelative(deltaMs) {
-  await seekTo(getDisplayedProgressMs() + deltaMs);
-}
-
-async function toggleShuffle() {
-  const target = !nowPlayingState.shuffleState;
-  nowPlayingState.shuffleState = target; // optimistic
-  updateAllShuffleButtons();
-  await playbackControl('PUT', `/me/player/shuffle?state=${target}`);
-}
-
 function setAllControlsDisabled(disabled) {
-  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next, shuffle }) => {
-    [prev, play, next, shuffle].forEach((id) => {
-      if (!id) return;
+  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next }) => {
+    [prev, play, next].forEach((id) => {
       const btn = document.getElementById(id);
       if (btn) btn.disabled = disabled;
     });
-  });
-  SEEK_BUTTON_IDS.forEach((id) => {
-    const btn = document.getElementById(id);
-    if (btn) btn.disabled = disabled;
   });
 }
 
@@ -1064,31 +943,22 @@ function tickNowPlayingProgress() {
   updateNowPlayingProgressUI();
 }
 
-// Current playback position, accounting for local elapsed time since the
-// last poll so the progress bar (and seek calculations) stay smooth
-// between the 5s polls rather than jumping only when a poll lands.
-function getDisplayedProgressMs() {
-  let displayedMs = nowPlayingState.progressMs;
-  if (nowPlayingState.isPlaying) {
-    displayedMs += Date.now() - nowPlayingState.lastSyncedAt;
-  }
-  return Math.min(displayedMs, nowPlayingState.durationMs);
-}
-
 function updateNowPlayingProgressUI() {
   const fill = document.getElementById('now-playing-progress-fill');
   const elapsedEl = document.getElementById('now-playing-elapsed');
   const miniFill = document.getElementById('mini-player-progress-fill');
-  const mobileFill = document.getElementById('mobile-player-progress-fill');
-  if ((!fill || !elapsedEl) && !miniFill && !mobileFill) return;
+  if ((!fill || !elapsedEl) && !miniFill) return;
 
-  const displayedMs = getDisplayedProgressMs();
+  let displayedMs = nowPlayingState.progressMs;
+  if (nowPlayingState.isPlaying) {
+    displayedMs += Date.now() - nowPlayingState.lastSyncedAt;
+  }
+  displayedMs = Math.min(displayedMs, nowPlayingState.durationMs);
 
   const percentage = nowPlayingState.durationMs > 0 ? (displayedMs / nowPlayingState.durationMs) * 100 : 0;
   if (fill) fill.style.width = `${percentage}%`;
   if (elapsedEl) elapsedEl.textContent = formatDuration(displayedMs);
   if (miniFill) miniFill.style.width = `${percentage}%`;
-  if (mobileFill) mobileFill.style.width = `${percentage}%`;
 }
 
 // LOAD TOP TRACKS
