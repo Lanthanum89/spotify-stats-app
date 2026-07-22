@@ -1004,6 +1004,21 @@ function renderAnalysisTab() {
     contributingSource.textContent = `top 50 songs (${rangeLabel})`;
   }
 
+  const artistQuadrantSource = document.getElementById('analysis-artist-quadrant-source');
+  if (artistQuadrantSource) {
+    artistQuadrantSource.textContent = `top 50 artists (${rangeLabel})`;
+  }
+
+  const durationQuadrantSource = document.getElementById('analysis-duration-quadrant-source');
+  if (durationQuadrantSource) {
+    durationQuadrantSource.textContent = `top 50 songs (${rangeLabel})`;
+  }
+
+  const followersQuadrantSource = document.getElementById('analysis-followers-quadrant-source');
+  if (followersQuadrantSource) {
+    followersQuadrantSource.textContent = `top 50 artists (${rangeLabel})`;
+  }
+
   // Draw the additional charts on this tab!
   renderHourlyActivityChart(appData.recentlyPlayed);
   renderDayOfWeekActivityChart(appData.recentlyPlayed);
@@ -1014,6 +1029,9 @@ function renderAnalysisTab() {
   renderDurationDistribution(activeTracks);
   renderTopContributingArtists(activeTracks);
   renderPopularityRankQuadrant(activeTracks);
+  renderArtistRankQuadrant(activeArtists);
+  renderDurationPopularityQuadrant(activeTracks);
+  renderFollowersPopularityQuadrant(activeArtists);
 }
 
 function renderGenreDonut(sortedGenres, totalHits) {
@@ -1722,22 +1740,11 @@ function renderTopContributingArtists(topTracks) {
   }).join('');
 }
 
-// RENDER POPULARITY VS PERSONAL RANK QUADRANT CHART
-// X = Spotify's global popularity score (mainstream-ness). Y = your rank within
-// this list (rank 1 at the top). Splits into four quadrants: mainstream
-// favourites, personal gems (underground but high-ranked for you), background
-// hits (popular but lower-ranked), and deep cuts.
-function renderPopularityRankQuadrant(topTracks) {
-  const container = document.getElementById('popularity-rank-quadrant-container');
-  if (!container) return;
-
-  if (!topTracks || !topTracks.items || topTracks.items.length === 0) {
-    container.innerHTML = '<div class="loading-inline">Not enough track data to plot.</div>';
-    return;
-  }
-
-  const items = topTracks.items;
-  const total = items.length;
+// SHARED SCATTER/QUADRANT RENDERER
+// points: [{ x, y, tooltip }] with x/y normalized to [0, 1] — x=0 left, x=1
+// right, y=0 top, y=1 bottom. Callers own the meaning of each axis and must
+// normalize their own data into that space before calling this.
+function renderQuadrantScatter(container, points, labels) {
   const width = 560;
   const height = 320;
   const padding = 36;
@@ -1745,14 +1752,6 @@ function renderPopularityRankQuadrant(topTracks) {
   const plotH = height - padding * 2;
   const midX = padding + plotW / 2;
   const midY = padding + plotH / 2;
-
-  const points = items.map((track, index) => {
-    const rank = index + 1;
-    const x = padding + (track.popularity / 100) * plotW;
-    // Rank 1 plots at the top of the chart, rank `total` at the bottom.
-    const y = total > 1 ? padding + ((rank - 1) / (total - 1)) * plotH : midY;
-    return { x, y, track, rank };
-  });
 
   let svg = `<svg viewBox="0 0 ${width} ${height}" style="width: 100%; height: auto; overflow: visible;">`;
 
@@ -1766,28 +1765,148 @@ function renderPopularityRankQuadrant(topTracks) {
   svg += `<rect x="${padding}" y="${padding}" width="${plotW}" height="${plotH}" fill="none" stroke="var(--line)" />`;
 
   // Quadrant labels — sit in the margins above/below the plot rect so they
-  // never collide with dots plotted right at the corners (e.g. rank #1 at 100% popularity).
-  svg += `<text x="${padding + 8}" y="${padding - 12}" fill="var(--accent-bright)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">PERSONAL GEMS</text>`;
-  svg += `<text x="${width - padding - 8}" y="${padding - 12}" text-anchor="end" fill="var(--green)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">MAINSTREAM FAVES</text>`;
-  svg += `<text x="${padding + 8}" y="${height - padding + 18}" fill="var(--dim)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">DEEP CUTS</text>`;
-  svg += `<text x="${width - padding - 8}" y="${height - padding + 18}" text-anchor="end" fill="var(--dim)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">BACKGROUND HITS</text>`;
+  // never collide with dots plotted right at the corners.
+  svg += `<text x="${padding + 8}" y="${padding - 12}" fill="var(--accent-bright)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">${labels.topLeft}</text>`;
+  svg += `<text x="${width - padding - 8}" y="${padding - 12}" text-anchor="end" fill="var(--green)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">${labels.topRight}</text>`;
+  svg += `<text x="${padding + 8}" y="${height - padding + 18}" fill="var(--dim)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">${labels.bottomLeft}</text>`;
+  svg += `<text x="${width - padding - 8}" y="${height - padding + 18}" text-anchor="end" fill="var(--dim)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">${labels.bottomRight}</text>`;
 
   // Axis labels
-  svg += `<text x="${width / 2}" y="${height - 4}" text-anchor="middle" fill="var(--dim)" font-size="10" font-family="var(--mono)">POPULARITY →</text>`;
-  svg += `<text x="14" y="${height / 2}" text-anchor="middle" fill="var(--dim)" font-size="10" font-family="var(--mono)" transform="rotate(-90 14 ${height / 2})">HIGHER PERSONAL RANK →</text>`;
+  svg += `<text x="${width / 2}" y="${height - 4}" text-anchor="middle" fill="var(--dim)" font-size="10" font-family="var(--mono)">${labels.xAxis}</text>`;
+  svg += `<text x="14" y="${height / 2}" text-anchor="middle" fill="var(--dim)" font-size="10" font-family="var(--mono)" transform="rotate(-90 14 ${height / 2})">${labels.yAxis}</text>`;
 
-  points.forEach((p) => {
-    svg += `<circle class="quadrant-dot" data-rank="${p.rank}" data-name="${escapeHtml(p.track.name)}" data-popularity="${p.track.popularity}" cx="${p.x}" cy="${p.y}" r="5" fill="var(--accent)" opacity="0.85" stroke="var(--bg)" stroke-width="1" style="cursor: pointer;"></circle>`;
+  points.forEach((p, index) => {
+    const cx = padding + p.x * plotW;
+    const cy = padding + p.y * plotH;
+    svg += `<circle class="quadrant-dot" data-index="${index}" cx="${cx}" cy="${cy}" r="5" fill="var(--accent)" opacity="0.85" stroke="var(--bg)" stroke-width="1" style="cursor: pointer;"></circle>`;
   });
 
   svg += `</svg>`;
   container.innerHTML = svg;
 
   attachChartTooltip(container, container.querySelectorAll('.quadrant-dot'), (dot) => {
-    const rank = dot.getAttribute('data-rank');
-    const name = dot.getAttribute('data-name');
-    const popularity = dot.getAttribute('data-popularity');
-    return `#${rank} ${name} — ${popularity}% popularity`;
+    return points[Number(dot.getAttribute('data-index'))].tooltip;
+  });
+}
+
+const RANK_QUADRANT_LABELS = {
+  topLeft: 'PERSONAL GEMS',
+  topRight: 'MAINSTREAM FAVES',
+  bottomLeft: 'DEEP CUTS',
+  bottomRight: 'BACKGROUND HITS',
+  xAxis: 'POPULARITY →',
+  yAxis: 'HIGHER PERSONAL RANK →'
+};
+
+// X = Spotify's global popularity score (mainstream-ness). Y = your rank
+// within this list (rank 1 at the top).
+function renderPopularityRankQuadrant(topTracks) {
+  const container = document.getElementById('popularity-rank-quadrant-container');
+  if (!container) return;
+
+  if (!topTracks || !topTracks.items || topTracks.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">Not enough track data to plot.</div>';
+    return;
+  }
+
+  const items = topTracks.items;
+  const total = items.length;
+  const points = items.map((track, index) => {
+    const rank = index + 1;
+    const y = total > 1 ? (rank - 1) / (total - 1) : 0.5;
+    return { x: track.popularity / 100, y, tooltip: `#${rank} ${track.name} — ${track.popularity}% popularity` };
+  });
+
+  renderQuadrantScatter(container, points, RANK_QUADRANT_LABELS);
+}
+
+// Same idea as the track quadrant above, but for your top artists.
+function renderArtistRankQuadrant(topArtists) {
+  const container = document.getElementById('artist-rank-quadrant-container');
+  if (!container) return;
+
+  if (!topArtists || !topArtists.items || topArtists.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">Not enough artist data to plot.</div>';
+    return;
+  }
+
+  const items = topArtists.items;
+  const total = items.length;
+  const points = items.map((artist, index) => {
+    const rank = index + 1;
+    const y = total > 1 ? (rank - 1) / (total - 1) : 0.5;
+    return { x: artist.popularity / 100, y, tooltip: `#${rank} ${artist.name} — ${artist.popularity}% popularity` };
+  });
+
+  renderQuadrantScatter(container, points, RANK_QUADRANT_LABELS);
+}
+
+// X = popularity. Y = track duration (longer plots higher) — are your
+// mainstream favourites long epics or quick hits?
+function renderDurationPopularityQuadrant(topTracks) {
+  const container = document.getElementById('duration-popularity-quadrant-container');
+  if (!container) return;
+
+  if (!topTracks || !topTracks.items || topTracks.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">Not enough track data to plot.</div>';
+    return;
+  }
+
+  const items = topTracks.items;
+  const durations = items.map((t) => t.duration_ms);
+  const minDur = Math.min(...durations);
+  const maxDur = Math.max(...durations);
+  const range = maxDur - minDur || 1;
+
+  const points = items.map((track) => ({
+    x: track.popularity / 100,
+    y: 1 - (track.duration_ms - minDur) / range,
+    tooltip: `${track.name} — ${formatDuration(track.duration_ms)}, ${track.popularity}% popularity`
+  }));
+
+  renderQuadrantScatter(container, points, {
+    topLeft: 'NICHE EPICS',
+    topRight: 'MAINSTREAM EPICS',
+    bottomLeft: 'NICHE QUICK HITS',
+    bottomRight: 'MAINSTREAM QUICK HITS',
+    xAxis: 'POPULARITY →',
+    yAxis: 'LONGER DURATION →'
+  });
+}
+
+// X = popularity. Y = follower count on a log scale (spans orders of
+// magnitude) — surfaces artists with a huge legacy following but modest
+// current buzz, vs. ones breaking out with high popularity but a smaller
+// audience so far. Followers are compared relatively within this top-50 set,
+// not against fixed absolute thresholds.
+function renderFollowersPopularityQuadrant(topArtists) {
+  const container = document.getElementById('followers-popularity-quadrant-container');
+  if (!container) return;
+
+  if (!topArtists || !topArtists.items || topArtists.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">Not enough artist data to plot.</div>';
+    return;
+  }
+
+  const items = topArtists.items;
+  const logFollowers = items.map((a) => Math.log10(a.followers.total + 1));
+  const minLog = Math.min(...logFollowers);
+  const maxLog = Math.max(...logFollowers);
+  const range = maxLog - minLog || 1;
+
+  const points = items.map((artist, index) => ({
+    x: artist.popularity / 100,
+    y: 1 - (logFollowers[index] - minLog) / range,
+    tooltip: `${artist.name} — ${formatFollowers(artist.followers.total)} followers, ${artist.popularity}% popularity`
+  }));
+
+  renderQuadrantScatter(container, points, {
+    topLeft: 'LEGACY FANBASE',
+    topRight: 'SUPERSTARS',
+    bottomLeft: 'NICHE / EMERGING',
+    bottomRight: 'RISING BUZZ',
+    xAxis: 'POPULARITY →',
+    yAxis: 'MORE FOLLOWERS →'
   });
 }
 

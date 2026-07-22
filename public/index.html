@@ -491,18 +491,65 @@
           </div>
         </div>
 
-        <!-- POPULARITY VS PERSONAL RANK QUADRANT -->
-        <div class="panel margin-top">
-          <div class="panel-heading">
-            <div>
-              <span class="panel-kicker">ANALYSIS / QUADRANT</span>
-              <h3>Popularity vs. Your Rank</h3>
+        <!-- QUADRANT CHARTS -->
+        <span class="analysis-section-title">Quadrant Charts</span>
+        <div class="grid-layout cols-2">
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / QUADRANT</span>
+                <h3>Tracks: Popularity vs. Your Rank</h3>
+              </div>
+              <span id="analysis-quadrant-source" class="data-source">top 50 songs</span>
             </div>
-            <span id="analysis-quadrant-source" class="data-source">top 50 songs</span>
+            <p class="section-desc">Each dot is one of your top tracks: how mainstream it is against how highly you personally rank it. Hover a dot for details.</p>
+            <div id="popularity-rank-quadrant-container" class="chart-container" style="position: relative;">
+              <div class="loading-inline">Plotting quadrant...</div>
+            </div>
           </div>
-          <p class="section-desc">Each dot is one of your top tracks: how mainstream it is (Spotify's global popularity score) against how highly you personally rank it. Hover a dot for details.</p>
-          <div id="popularity-rank-quadrant-container" class="chart-container" style="position: relative;">
-            <div class="loading-inline">Plotting quadrant...</div>
+
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / QUADRANT</span>
+                <h3>Artists: Popularity vs. Your Rank</h3>
+              </div>
+              <span id="analysis-artist-quadrant-source" class="data-source">top 50 artists</span>
+            </div>
+            <p class="section-desc">Same idea, for your top artists: how mainstream they are against how highly you personally rank them.</p>
+            <div id="artist-rank-quadrant-container" class="chart-container" style="position: relative;">
+              <div class="loading-inline">Plotting quadrant...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-layout cols-2 margin-top">
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / QUADRANT</span>
+                <h3>Tracks: Duration vs. Popularity</h3>
+              </div>
+              <span id="analysis-duration-quadrant-source" class="data-source">top 50 songs</span>
+            </div>
+            <p class="section-desc">Are your mainstream favourites long epics or quick hits? Track length against popularity.</p>
+            <div id="duration-popularity-quadrant-container" class="chart-container" style="position: relative;">
+              <div class="loading-inline">Plotting quadrant...</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / QUADRANT</span>
+                <h3>Artists: Followers vs. Popularity</h3>
+              </div>
+              <span id="analysis-followers-quadrant-source" class="data-source">top 50 artists</span>
+            </div>
+            <p class="section-desc">Follower count (relative, log scale) against popularity — legacy fanbases vs. artists breaking out right now.</p>
+            <div id="followers-popularity-quadrant-container" class="chart-container" style="position: relative;">
+              <div class="loading-inline">Plotting quadrant...</div>
+            </div>
           </div>
         </div>
       </section>
