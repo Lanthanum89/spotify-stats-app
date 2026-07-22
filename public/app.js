@@ -144,6 +144,22 @@ function hideLoading() {
   document.getElementById('loading-container').classList.add('hidden');
 }
 
+// Collapsible sidebar (desktop) — icon-only rail, persisted across sessions
+function applySidebarCollapsedState(collapsed) {
+  const sidebar = document.getElementById('sidebar');
+  const dashboardLayout = document.getElementById('app-container');
+  const toggleBtn = document.getElementById('btn-sidebar-toggle');
+  if (!sidebar || !dashboardLayout) return;
+
+  sidebar.classList.toggle('collapsed', collapsed);
+  dashboardLayout.classList.toggle('sidebar-collapsed', collapsed);
+  if (toggleBtn) {
+    toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+    toggleBtn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+    toggleBtn.setAttribute('aria-label', toggleBtn.title);
+  }
+}
+
 // Mobile nav drawer (hamburger menu, phones & tablets in portrait)
 function openMobileMenu() {
   document.getElementById('mobile-nav-drawer').classList.add('open');
@@ -207,6 +223,17 @@ function setupEventListeners() {
   window.addEventListener('resize', () => {
     if (window.innerWidth > 800) closeMobileMenu();
   });
+
+  // Collapsible sidebar (desktop)
+  applySidebarCollapsedState(localStorage.getItem('sidebar-collapsed') === 'true');
+  const sidebarToggleBtn = document.getElementById('btn-sidebar-toggle');
+  if (sidebarToggleBtn) {
+    sidebarToggleBtn.addEventListener('click', () => {
+      const collapsed = !document.getElementById('sidebar').classList.contains('collapsed');
+      applySidebarCollapsedState(collapsed);
+      localStorage.setItem('sidebar-collapsed', String(collapsed));
+    });
+  }
 
   // Time Range filters
   document.querySelectorAll('.time-filter-btn').forEach(button => {
@@ -496,11 +523,11 @@ function renderOverview() {
   document.getElementById('profile-country').textContent = profile.country;
   document.getElementById('profile-product').textContent = profile.product;
 
-  // 4. Recently Played Teaser (Limit to 5)
+  // 4. Recently Played Teaser (Limit to 2, keeps Overview fitting one screen)
   const recentList = document.getElementById('overview-recent-list');
   recentList.innerHTML = '';
   if (recent && recent.items) {
-    recent.items.slice(0, 5).forEach(item => {
+    recent.items.slice(0, 2).forEach(item => {
       const track = item.track;
       const cover = track.album.images && track.album.images.length > 0 
         ? track.album.images[0].url 
@@ -523,11 +550,11 @@ function renderOverview() {
     });
   }
 
-  // 5. Current Favorites Teaser (Limit to 5)
+  // 5. Current Favorites Teaser (Limit to 2, keeps Overview fitting one screen)
   const tracksList = document.getElementById('overview-tracks-list');
   tracksList.innerHTML = '';
   if (topTracks && topTracks.items) {
-    topTracks.items.slice(0, 5).forEach(track => {
+    topTracks.items.slice(0, 2).forEach(track => {
       const cover = track.album.images && track.album.images.length > 0 
         ? track.album.images[0].url 
         : 'https://via.placeholder.com/44';
