@@ -263,7 +263,14 @@ body::after {
 .sidebar.collapsed .nav-item { gap: 0; justify-content: center; padding: 12px; }
 .sidebar.collapsed .sidebar-footer-row { flex-direction: column; gap: 14px; }
 .sidebar.collapsed .user-badge { justify-content: center; }
-.sidebar.collapsed .sidebar-mini-player { display: none; }
+/* Collapsed rail: no room for cover/track text or a horizontal progress
+   bar, but the transport controls still fit — stack them vertically
+   instead of hiding the whole mini player. */
+.sidebar.collapsed .sidebar-mini-player { background: transparent; border: none; padding: 0; }
+.sidebar.collapsed .mini-player-now,
+.sidebar.collapsed .mini-player-progress,
+.sidebar.collapsed .mini-player-error { display: none; }
+.sidebar.collapsed .mini-player-controls { flex-direction: column; gap: 8px; margin-top: 0; }
 
 /* SIDEBAR MINI PLAYER — compact echo of the Overview Now Playing panel */
 .sidebar-mini-player {
@@ -279,21 +286,31 @@ body::after {
 .mini-player-artist { color: var(--muted); font-size: 0.66rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini-player-progress { background: var(--line); border-radius: 2px; height: 3px; margin-top: 6px; overflow: hidden; width: 100%; }
 .mini-player-progress-fill { background: var(--accent); height: 100%; transition: width 0.4s linear; width: 0; }
-.mini-player-controls { align-items: center; display: flex; justify-content: center; gap: 14px; margin-top: 6px; }
-.mini-player-btn { align-items: center; background: transparent; border: none; color: var(--muted); cursor: pointer; display: flex; justify-content: center; padding: 4px; transition: var(--transition); }
-.mini-player-btn:hover:not(:disabled) { color: var(--accent-bright); }
+.mini-player-controls { align-items: center; display: flex; justify-content: center; gap: 10px; margin-top: 8px; }
+.mini-player-btn {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  height: 36px;
+  justify-content: center;
+  transition: var(--transition);
+  width: 36px;
+}
+.mini-player-btn:hover:not(:disabled) { border-color: var(--line-strong); color: var(--accent-bright); }
 .mini-player-btn:disabled { cursor: default; opacity: 0.4; }
 .mini-player-play-btn {
-  align-items: center;
   background: var(--accent);
-  border-radius: 50%;
+  border-color: var(--accent);
+  border-radius: 9px;
   color: var(--sidebar);
-  display: flex;
-  height: 24px;
-  justify-content: center;
-  width: 24px;
+  height: 40px;
+  width: 40px;
 }
-.mini-player-play-btn:hover:not(:disabled) { background: var(--accent-bright); color: var(--sidebar); }
+.mini-player-play-btn:hover:not(:disabled) { background: var(--accent-bright); border-color: var(--accent-bright); color: var(--sidebar); }
 .mini-player-error { color: var(--danger, #e18088); display: block; font-size: 0.65rem; margin-top: 4px; text-align: center; }
 
 /* OVERVIEW NOW PLAYING — full-size transport controls under the progress bar */
@@ -933,7 +950,6 @@ body::after {
 }
 
 /* NOW PLAYING */
-.now-playing-panel { padding: 22px 26px; }
 .now-playing-badge {
   align-items: center;
   color: var(--green);
@@ -956,8 +972,7 @@ body::after {
   100% { box-shadow: 0 0 0 0 rgba(86, 201, 139, 0); }
 }
 
-.now-playing-body { align-items: center; display: flex; gap: 18px; margin-top: 6px; }
-.now-playing-info { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.now-playing-info { display: flex; flex-direction: column; min-width: 0; }
 .now-playing-title {
   color: var(--text);
   font-size: 1.05rem;
@@ -996,37 +1011,42 @@ body::after {
   margin-top: 5px;
 }
 
-@media (max-width: 560px) {
-  .now-playing-panel { padding: 18px; }
-}
-
-/* OVERVIEW — compacted so it fits one screen without scrolling at common
+/* OVERVIEW — a hero row (big cover art + info/progress/controls underneath
+   it on the left, Up Next/Recently Played/Current Favourites stacked on
+   the right) compacted to fit one screen without scrolling at common
    desktop viewport heights (~800px+). Scoped to #tab-overview only; other
-   tabs keep the roomier default spacing since their content is variable-length
-   anyway and benefits less from this. */
+   tabs keep the roomier default spacing since their content is
+   variable-length anyway and benefits less from this. */
 .main-content:has(#tab-overview.active) { padding-top: 16px; padding-bottom: 16px; }
-#tab-overview .grid-layout { gap: 10px; }
-#tab-overview .margin-top { margin-top: 10px; }
-#tab-overview .now-playing-panel { padding: 16px 22px; }
-#tab-overview .now-playing-title { font-size: 1.35rem; }
-#tab-overview .now-playing-artist { font-size: 1rem; }
-#tab-overview .panel:not(.now-playing-panel):not(.now-playing-art-panel) { padding: 14px 16px; }
-#tab-overview .panel h3 { font-size: 1rem; margin-bottom: 8px; }
-#tab-overview .panel .panel-kicker { display: block; margin-bottom: 2px; }
-#tab-overview .mini-track-item { padding: 4px 0 6px; }
 
-/* Big cover-art tile — takes the Top Genres panel's old slot in the teaser
-   row, showing the currently-playing track's artwork large since Now
-   Playing's own inline cover was dropped in favour of this. */
+.now-playing-hero { display: grid; gap: 14px; grid-template-columns: minmax(260px, 340px) 1fr; }
+.now-playing-art-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .now-playing-art-panel {
+  aspect-ratio: 1;
   align-items: center;
+  background: var(--surface);
+  border: 1px solid rgba(170, 150, 216, 0.08);
+  border-radius: var(--radius);
   display: flex;
   justify-content: center;
   overflow: hidden;
-  padding: 0 !important;
 }
 .now-playing-cover-large { height: 100%; object-fit: cover; width: 100%; }
 .now-playing-art-placeholder { align-items: center; color: var(--dim); display: flex; justify-content: center; }
+.now-playing-hero-info { padding: 14px 16px; }
+.now-playing-hero-info .panel-heading { margin-bottom: 6px; }
+.now-playing-hero-info .now-playing-title { font-size: 1.1rem; }
+
+.now-playing-side-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.now-playing-side-col .panel { flex: 1; padding: 14px 16px; }
+
+#tab-overview .panel h3 { font-size: 1rem; margin-bottom: 8px; }
+#tab-overview .panel .panel-kicker { display: block; margin-bottom: 2px; }
+#tab-overview .mini-track-item { padding: 4px 0 6px; }
 #tab-overview .mini-track-cover { height: 34px; width: 34px; }
 #tab-overview .btn-sm.margin-top { margin-top: 8px; }
+
+@media (max-width: 900px) {
+  .now-playing-hero { grid-template-columns: 1fr; }
+}
 
