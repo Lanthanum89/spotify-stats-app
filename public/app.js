@@ -526,7 +526,6 @@ function renderOverview() {
 
   const recent = appData.recentlyPlayed;
   const topTracks = appData.topTracks['medium_term'];
-  const topArtists = appData.topArtists['medium_term'];
   const shortTermTracks = appData.topTracks['short_term'];
   // Falls back to the 6-month list if short_term comes back empty (some
   // accounts don't have enough recent listening history yet).
@@ -538,7 +537,7 @@ function renderOverview() {
   const recentList = document.getElementById('overview-recent-list');
   recentList.innerHTML = '';
   if (recent && recent.items) {
-    recent.items.slice(0, 4).forEach(item => {
+    recent.items.slice(0, 3).forEach(item => {
       const track = item.track;
       const cover = track.album.images && track.album.images.length > 0 
         ? track.album.images[0].url 
@@ -586,9 +585,6 @@ function renderOverview() {
       tracksList.appendChild(div);
     });
   }
-
-  // 3. Genres summary teaser
-  renderMiniGenres(topArtists);
 }
 
 // --- NOW PLAYING ---
@@ -713,7 +709,6 @@ async function renderNowPlayingActive(data) {
 
     document.getElementById('now-playing-content').innerHTML = `
       <div class="now-playing-body">
-        <img id="now-playing-cover" class="now-playing-cover" src="${cover}" alt="${track.name}">
         <div class="now-playing-info">
           <a id="now-playing-track" class="now-playing-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="${track.name}">${track.name}</a>
           <span class="now-playing-artist">${artistsName}</span>
@@ -730,6 +725,7 @@ async function renderNowPlayingActive(data) {
     `;
   }
 
+  renderNowPlayingArtTile(cover, track.name);
   renderSidebarMiniPlayer(track, cover, artistsName);
   showNowPlayingControls();
   updateAllPlayIcons();
@@ -760,8 +756,29 @@ function hideSidebarMiniPlayer() {
   const panel = document.getElementById('sidebar-mini-player');
   if (panel) panel.classList.add('hidden');
   hideNowPlayingControls();
+  hideNowPlayingArtTile();
   nowPlayingPollCount = 0;
   renderOverviewQueue([]);
+}
+
+// Big cover-art tile on Overview, in the teaser row (replaces the old Top
+// Genres slot) — shows the currently-playing track's artwork large, with a
+// placeholder icon when nothing's playing.
+function renderNowPlayingArtTile(cover, trackName) {
+  const img = document.getElementById('now-playing-cover-large');
+  const placeholder = document.getElementById('now-playing-art-placeholder');
+  if (!img || !placeholder) return;
+  img.src = cover;
+  img.alt = trackName;
+  img.classList.remove('hidden');
+  placeholder.classList.add('hidden');
+}
+
+function hideNowPlayingArtTile() {
+  const img = document.getElementById('now-playing-cover-large');
+  const placeholder = document.getElementById('now-playing-art-placeholder');
+  if (img) { img.classList.add('hidden'); img.src = ''; }
+  if (placeholder) placeholder.classList.remove('hidden');
 }
 
 function showNowPlayingControls() {
@@ -806,7 +823,7 @@ function renderOverviewQueue(queue) {
   const list = document.getElementById('overview-queue-list');
   if (!list) return;
 
-  const upcoming = queue.slice(0, 5);
+  const upcoming = queue.slice(0, 3);
   if (upcoming.length === 0) {
     list.innerHTML = '<div class="loading-inline">Nothing queued right now.</div>';
     return;
@@ -935,55 +952,6 @@ function updateNowPlayingProgressUI() {
   if (fill) fill.style.width = `${percentage}%`;
   if (elapsedEl) elapsedEl.textContent = formatDuration(displayedMs);
   if (miniFill) miniFill.style.width = `${percentage}%`;
-}
-
-// Render Mini Genres List on Overview
-function renderMiniGenres(topArtists) {
-  const container = document.getElementById('overview-genres-list');
-  container.innerHTML = '';
-
-  if (!topArtists || !topArtists.items || topArtists.items.length === 0) {
-    container.innerHTML = '<div class="loading-inline">No genre data available.</div>';
-    return;
-  }
-
-  const genreCounts = {};
-  topArtists.items.forEach(artist => {
-    artist.genres.forEach(genre => {
-      genreCounts[genre] = (genreCounts[genre] || 0) + 1;
-    });
-  });
-
-  const sortedGenres = Object.entries(genreCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3); // Top 3
-
-  const totalHits = Object.values(genreCounts).reduce((a, b) => a + b, 0);
-
-  if (sortedGenres.length === 0) {
-    container.innerHTML = '<div class="loading-inline">Not enough artist data to map genres.</div>';
-    return;
-  }
-
-  sortedGenres.forEach(([genre, count]) => {
-    const percentage = Math.round((count / totalHits) * 100);
-    const item = document.createElement('div');
-    item.className = 'genre-bar-container interactive-genre-bar';
-    item.title = `Click to filter artists by ${genre}`;
-    item.innerHTML = `
-      <div class="genre-bar-info">
-        <span class="genre-bar-name">${genre}</span>
-        <span class="genre-bar-percentage">${percentage}%</span>
-      </div>
-      <div class="genre-bar-wrapper">
-        <div class="genre-bar-fill" style="width: ${percentage}%"></div>
-      </div>
-    `;
-    item.addEventListener('click', () => {
-      applyGenreFilterToArtists(genre);
-    });
-    container.appendChild(item);
-  });
 }
 
 // LOAD TOP TRACKS
