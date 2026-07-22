@@ -198,35 +198,20 @@ body::after {
 .sidebar {
   background: var(--sidebar);
   border-right: 1px solid var(--line);
+  cursor: pointer;
   display: flex;
   flex-direction: column;
   height: 100vh;
   justify-content: space-between;
   overflow: hidden;
   padding: 26px 18px 20px;
-  transition: padding 0.25s ease;
+  transition: padding 0.25s ease, background 0.15s ease;
 }
-.sidebar-brand { align-items: center; display: flex; gap: 11px; margin: 0 8px 20px; }
+.sidebar:hover { background: var(--surface); }
+.sidebar-brand { align-items: center; display: flex; gap: 11px; margin: 0 8px 20px; pointer-events: none; }
 .brand-logo svg { fill: var(--accent); height: 25px; width: 25px; }
 .brand-text { color: var(--text); font: 600 1.2rem var(--mono); letter-spacing: -0.04em; white-space: nowrap; }
 .brand-text::after { color: var(--accent); content: "_"; }
-
-.sidebar-toggle {
-  align-items: center;
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--dim);
-  cursor: pointer;
-  display: flex;
-  justify-content: center;
-  margin: 0 0 22px;
-  padding: 7px;
-  transition: var(--transition);
-  width: 100%;
-}
-.sidebar-toggle:hover { background: var(--accent-soft); color: var(--accent-bright); }
-.sidebar-toggle svg { transition: transform 0.25s ease; }
 
 .nav-menu { display: flex; flex: 1; flex-direction: column; gap: 5px; }
 .nav-item {
@@ -266,7 +251,6 @@ body::after {
 .sidebar.collapsed .nav-item span,
 .sidebar.collapsed .user-info { display: none; }
 .sidebar.collapsed .nav-item { gap: 0; justify-content: center; padding: 12px; }
-.sidebar.collapsed .sidebar-toggle svg { transform: rotate(180deg); }
 .sidebar.collapsed .sidebar-footer { flex-direction: column; gap: 14px; }
 .sidebar.collapsed .user-badge { justify-content: center; }
 

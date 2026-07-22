@@ -148,16 +148,11 @@ function hideLoading() {
 function applySidebarCollapsedState(collapsed) {
   const sidebar = document.getElementById('sidebar');
   const dashboardLayout = document.getElementById('app-container');
-  const toggleBtn = document.getElementById('btn-sidebar-toggle');
   if (!sidebar || !dashboardLayout) return;
 
   sidebar.classList.toggle('collapsed', collapsed);
   dashboardLayout.classList.toggle('sidebar-collapsed', collapsed);
-  if (toggleBtn) {
-    toggleBtn.setAttribute('aria-expanded', String(!collapsed));
-    toggleBtn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
-    toggleBtn.setAttribute('aria-label', toggleBtn.title);
-  }
+  sidebar.setAttribute('aria-expanded', String(!collapsed));
 }
 
 // Mobile nav drawer (hamburger menu, phones & tablets in portrait)
@@ -224,12 +219,14 @@ function setupEventListeners() {
     if (window.innerWidth > 800) closeMobileMenu();
   });
 
-  // Collapsible sidebar (desktop)
+  // Collapsible sidebar (desktop) — click any empty area of the rail itself
+  // (not a nav item, the user badge, or logout) to toggle collapsed state.
   applySidebarCollapsedState(localStorage.getItem('sidebar-collapsed') === 'true');
-  const sidebarToggleBtn = document.getElementById('btn-sidebar-toggle');
-  if (sidebarToggleBtn) {
-    sidebarToggleBtn.addEventListener('click', () => {
-      const collapsed = !document.getElementById('sidebar').classList.contains('collapsed');
+  const sidebarEl = document.getElementById('sidebar');
+  if (sidebarEl) {
+    sidebarEl.addEventListener('click', (e) => {
+      if (e.target.closest('.nav-item, .btn-logout, .user-badge')) return;
+      const collapsed = !sidebarEl.classList.contains('collapsed');
       applySidebarCollapsedState(collapsed);
       localStorage.setItem('sidebar-collapsed', String(collapsed));
     });
