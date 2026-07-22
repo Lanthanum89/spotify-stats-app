@@ -1019,7 +1019,7 @@ body::after {
    variable-length anyway and benefits less from this. */
 .main-content:has(#tab-overview.active) { padding-top: 16px; padding-bottom: 16px; }
 
-.now-playing-hero { display: grid; gap: 14px; grid-template-columns: minmax(260px, 340px) 1fr; }
+.now-playing-hero { display: grid; gap: 14px; grid-template-columns: 1fr 380px; }
 .now-playing-art-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .now-playing-art-panel {
   aspect-ratio: 1;
@@ -1048,5 +1048,37 @@ body::after {
 
 @media (max-width: 900px) {
   .now-playing-hero { grid-template-columns: 1fr; }
+}
+
+/* CARD-LEVEL TIME FILTERS (Analysis cards with individual timeframe selection) */
+.card-filter-container {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-start;
+}
+
+.card-time-filter-btn {
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--mono);
+}
+
+.card-time-filter-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(170, 150, 216, 0.05);
+}
+
+.card-time-filter-btn.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
 }
 

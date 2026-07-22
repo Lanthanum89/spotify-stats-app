@@ -5,6 +5,20 @@ let currentView = 'grid'; // grid, list
 let artistFilter = ''; // Filter string for top artists grid
 let trackFilter = ''; // Filter string for top tracks grid
 
+// Card-level timeframe filters (independent per analysis card)
+const cardRanges = {
+  'genres': 'medium_term',
+  'listening-profile': 'medium_term',
+  'track-popularity': 'medium_term',
+  'artist-popularity': 'medium_term',
+  'duration': 'medium_term',
+  'contributing': 'medium_term',
+  'track-quadrant': 'medium_term',
+  'artist-quadrant': 'medium_term',
+  'duration-quadrant': 'medium_term',
+  'followers-quadrant': 'medium_term'
+};
+
 // Audio preview player state
 let activeAudio = null;
 let activePlayButton = null;
@@ -296,7 +310,7 @@ function setupEventListeners() {
       document.querySelectorAll('.view-toggle-btn').forEach(btn => btn.classList.remove('active'));
       button.classList.add('active');
       currentView = button.getAttribute('data-view');
-      
+
       // Re-render active tab if it's tracks, artists, or recent
       if (currentTab === 'tracks') {
         renderTopTracks(appData.topTracks[currentRange]);
@@ -305,6 +319,25 @@ function setupEventListeners() {
       } else if (currentTab === 'recent') {
         renderRecentlyPlayed(appData.recentlyPlayed);
       }
+    });
+  });
+
+  // Card-level timeframe filters (Analysis cards with individual ranges)
+  document.querySelectorAll('.card-time-filter-btn').forEach(button => {
+    button.addEventListener('click', async () => {
+      const cardId = button.getAttribute('data-card');
+      const range = button.getAttribute('data-range');
+
+      // Update the filter state for this card
+      cardRanges[cardId] = range;
+
+      // Update active state for this card's buttons
+      const cardButtons = document.querySelectorAll(`.card-time-filter-btn[data-card="${cardId}"]`);
+      cardButtons.forEach(btn => btn.classList.remove('active'));
+      button.classList.add('active');
+
+      // Fetch data if needed and re-render the specific card
+      await renderAnalysisCardByName(cardId, range);
     });
   });
 
@@ -488,22 +521,17 @@ async function loadDashboard() {
   hideDashboardError();
 
   try {
-    // Fetch profile and recently played immediately. short_term also comes in
-    // now (rather than lazily, like other ranges) since the Overview's
-    // Current Favourites teaser needs it — Spotify's short_term is roughly
-    // the last 4 weeks, the closest available match to "last 30 days".
-    const [profileRes, recentRes, tracksRes, shortTracksRes, artistsRes] = await Promise.all([
+    // Fetch profile, recently played, and default ranges for initial display
+    const [profileRes, recentRes, tracksRes, artistsRes] = await Promise.all([
       spotifyFetch('/me'),
       spotifyFetch('/me/player/recently-played?limit=50'),
       spotifyFetch(`/me/top/tracks?time_range=medium_term&limit=50`),
-      spotifyFetch(`/me/top/tracks?time_range=short_term&limit=50`),
       spotifyFetch(`/me/top/artists?time_range=medium_term&limit=50`)
     ]);
 
     appData.profile = await profileRes.json();
     appData.recentlyPlayed = await recentRes.json();
     appData.topTracks['medium_term'] = await tracksRes.json();
-    appData.topTracks['short_term'] = await shortTracksRes.json();
     appData.topArtists['medium_term'] = await artistsRes.json();
 
     // Fill user bar details
@@ -548,25 +576,18 @@ function renderOverview() {
   if (!appData.profile || !appData.recentlyPlayed) return;
 
   const recent = appData.recentlyPlayed;
-  const topTracks = appData.topTracks['medium_term'];
-  const shortTermTracks = appData.topTracks['short_term'];
-  // Falls back to the 6-month list if short_term comes back empty (some
-  // accounts don't have enough recent listening history yet).
-  const favouriteTracks = shortTermTracks && shortTermTracks.items && shortTermTracks.items.length > 0
-    ? shortTermTracks
-    : topTracks;
 
-  // 1. Recently Played Teaser
+  // Recently Played Teaser
   const recentList = document.getElementById('overview-recent-list');
   recentList.innerHTML = '';
   if (recent && recent.items) {
     recent.items.slice(0, 3).forEach(item => {
       const track = item.track;
-      const cover = track.album.images && track.album.images.length > 0 
-        ? track.album.images[0].url 
+      const cover = track.album.images && track.album.images.length > 0
+        ? track.album.images[0].url
         : 'https://via.placeholder.com/44';
       const artistsName = track.artists.map(a => a.name).join(', ');
-      
+
       const div = document.createElement('div');
       div.className = 'mini-track-item';
       div.innerHTML = `
@@ -580,32 +601,6 @@ function renderOverview() {
         </div>
       `;
       recentList.appendChild(div);
-    });
-  }
-
-  // 2. Current Favourites Teaser (last 30 days)
-  const tracksList = document.getElementById('overview-tracks-list');
-  tracksList.innerHTML = '';
-  if (favouriteTracks && favouriteTracks.items) {
-    favouriteTracks.items.slice(0, 3).forEach(track => {
-      const cover = track.album.images && track.album.images.length > 0 
-        ? track.album.images[0].url 
-        : 'https://via.placeholder.com/44';
-      const artistsName = track.artists.map(a => a.name).join(', ');
-      
-      const div = document.createElement('div');
-      div.className = 'mini-track-item';
-      div.innerHTML = `
-        <img class="mini-track-cover" src="${cover}" alt="${track.name}">
-        <div class="mini-track-info">
-          <span class="mini-track-title">${track.name}</span>
-          <span class="mini-track-artist">${artistsName}</span>
-        </div>
-        <div class="mini-track-meta">
-          <span>${formatDuration(track.duration_ms)}</span>
-        </div>
-      `;
-      tracksList.appendChild(div);
     });
   }
 }
@@ -1251,6 +1246,191 @@ async function loadAnalysisTab(forceReload = false) {
   }
 
   renderAnalysisTab();
+}
+
+// Update data source label for a specific card
+function updateDataSourceLabel(elementId, type, rangeLabel) {
+  const element = document.getElementById(elementId);
+  if (!element) return;
+
+  const labelMap = {
+    'genres': `top 50 artists (${rangeLabel})`,
+    'track-popularity': `top 50 songs (${rangeLabel})`,
+    'artist-popularity': `top 50 artists (${rangeLabel})`,
+    'duration': `top 50 songs (${rangeLabel})`,
+    'contributing': `top 50 songs (${rangeLabel})`,
+    'track-quadrant': `top 50 songs (${rangeLabel})`,
+    'artist-quadrant': `top 50 artists (${rangeLabel})`,
+    'duration-quadrant': `top 50 songs (${rangeLabel})`,
+    'followers-quadrant': `top 50 artists (${rangeLabel})`
+  };
+
+  element.textContent = labelMap[type] || `top 50 (${rangeLabel})`;
+}
+
+// Render individual analysis card based on its ID and range
+async function renderAnalysisCardByName(cardId, range) {
+  // Fetch data if not already cached
+  if (!appData.topArtists[range]) {
+    try {
+      const res = await spotifyFetch(`/me/top/artists?time_range=${range}&limit=50`);
+      appData.topArtists[range] = await res.json();
+    } catch (err) {
+      console.error(`Error fetching artists data for range ${range}:`, err);
+      return;
+    }
+  }
+
+  if (!appData.topTracks[range]) {
+    try {
+      const res = await spotifyFetch(`/me/top/tracks?time_range=${range}&limit=50`);
+      appData.topTracks[range] = await res.json();
+    } catch (err) {
+      console.error(`Error fetching tracks data for range ${range}:`, err);
+      return;
+    }
+  }
+
+  const activeArtists = appData.topArtists[range];
+  const activeTracks = appData.topTracks[range];
+
+  // Update data source labels
+  const rangeLabels = {
+    short_term: '4 weeks',
+    medium_term: '6 months',
+    long_term: 'all time'
+  };
+  const rangeLabel = rangeLabels[range] || '6 months';
+
+  // Render the appropriate card based on cardId
+  switch (cardId) {
+    case 'genres':
+    case 'listening-profile':
+      renderGenreDistributionCard(activeArtists, rangeLabel);
+      updateDataSourceLabel('analysis-genres-source', 'genres', rangeLabel);
+      break;
+    case 'track-popularity':
+      renderPopularityDistribution(activeTracks);
+      updateDataSourceLabel('analysis-popularity-source', 'track-popularity', rangeLabel);
+      break;
+    case 'artist-popularity':
+      renderArtistPopularityDistribution(activeArtists);
+      updateDataSourceLabel('analysis-artist-popularity-source', 'artist-popularity', rangeLabel);
+      break;
+    case 'duration':
+      renderDurationDistribution(activeTracks);
+      updateDataSourceLabel('analysis-duration-source', 'duration', rangeLabel);
+      break;
+    case 'contributing':
+      renderTopContributingArtists(activeTracks);
+      updateDataSourceLabel('analysis-contributing-source', 'contributing', rangeLabel);
+      break;
+    case 'track-quadrant':
+      renderPopularityRankQuadrant(activeTracks);
+      updateDataSourceLabel('analysis-quadrant-source', 'track-quadrant', rangeLabel);
+      break;
+    case 'artist-quadrant':
+      renderArtistRankQuadrant(activeArtists);
+      updateDataSourceLabel('analysis-artist-quadrant-source', 'artist-quadrant', rangeLabel);
+      break;
+    case 'duration-quadrant':
+      renderDurationPopularityQuadrant(activeTracks);
+      updateDataSourceLabel('analysis-duration-quadrant-source', 'duration-quadrant', rangeLabel);
+      break;
+    case 'followers-quadrant':
+      renderFollowersPopularityQuadrant(activeArtists);
+      updateDataSourceLabel('analysis-followers-quadrant-source', 'followers-quadrant', rangeLabel);
+      break;
+  }
+}
+
+// Render genre distribution and listening profile cards
+function renderGenreDistributionCard(activeArtists, rangeLabel) {
+  const chartContainer = document.getElementById('genres-chart-container');
+  const donutContainer = document.getElementById('genre-donut');
+  const tasteTitle = document.getElementById('taste-title');
+  const tasteDesc = document.getElementById('taste-description');
+  const primaryGenreVal = document.getElementById('genre-stat-primary');
+  const uniqueGenresVal = document.getElementById('genre-stat-unique');
+  const topShareVal = document.getElementById('genre-stat-share');
+
+  if (!activeArtists || !activeArtists.items || activeArtists.items.length === 0) {
+    chartContainer.innerHTML = '<div class="loading-inline">Not enough artist data to display genres. Please listen to more music first.</div>';
+    donutContainer.innerHTML = '';
+    return;
+  }
+
+  const genreCounts = {};
+  activeArtists.items.forEach(artist => {
+    artist.genres.forEach(genre => {
+      genreCounts[genre] = (genreCounts[genre] || 0) + 1;
+    });
+  });
+
+  const sortedGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]);
+  const totalHits = Object.values(genreCounts).reduce((a, b) => a + b, 0);
+  const uniqueCount = sortedGenres.length;
+
+  primaryGenreVal.textContent = sortedGenres.length > 0 ? sortedGenres[0][0] : '-';
+  uniqueGenresVal.textContent = uniqueCount;
+  topShareVal.textContent = sortedGenres.length > 0
+    ? `${Math.round((sortedGenres[0][1] / totalHits) * 100)}%`
+    : '0%';
+
+  chartContainer.innerHTML = '';
+  const displayGenres = sortedGenres.slice(0, 6);
+
+  displayGenres.forEach(([genre, count], index) => {
+    const percentage = Math.round((count / totalHits) * 100);
+    const bar = document.createElement('div');
+    bar.className = 'genre-bar-container interactive-genre-bar';
+    bar.title = `Click to filter artists by ${genre}`;
+    bar.innerHTML = `
+      <div class="genre-bar-info">
+        <span class="genre-bar-name">${String(index + 1).padStart(2, '0')} / ${genre}</span>
+        <span class="genre-bar-percentage">${count} artist${count > 1 ? 's' : ''} · ${percentage}%</span>
+      </div>
+      <div class="genre-bar-wrapper">
+        <div class="genre-bar-fill" style="width: ${percentage}%"></div>
+      </div>
+    `;
+    bar.addEventListener('click', () => {
+      applyGenreFilterToArtists(genre);
+    });
+    chartContainer.appendChild(bar);
+  });
+
+  renderGenreDonut(sortedGenres, totalHits);
+
+  if (sortedGenres.length === 0) {
+    tasteTitle.textContent = 'Insufficient signal';
+    tasteDesc.textContent = 'Listen to more artists on Spotify to build a useful genre profile.';
+    return;
+  }
+
+  const topGenre = sortedGenres[0][0].toLowerCase();
+  if (topGenre.includes('rock') || topGenre.includes('metal') || topGenre.includes('grunge')) {
+    tasteTitle.textContent = 'High-gain architecture';
+    tasteDesc.textContent = 'Guitar-led, rhythm-forward listening with a preference for weight, texture, and strong band dynamics.';
+  } else if (topGenre.includes('pop') || topGenre.includes('dance')) {
+    tasteTitle.textContent = 'Hook-driven systems';
+    tasteDesc.textContent = 'Clean production, immediate melodies, and high-energy arrangements dominate your current listening profile.';
+  } else if (topGenre.includes('rap') || topGenre.includes('hip hop') || topGenre.includes('trap')) {
+    tasteTitle.textContent = 'Low-end focused';
+    tasteDesc.textContent = 'Bass, cadence, and vocal flow are the strongest signals across your top-artist set.';
+  } else if (topGenre.includes('indie') || topGenre.includes('alternative') || topGenre.includes('folk')) {
+    tasteTitle.textContent = 'Independent signal';
+    tasteDesc.textContent = 'Atmospheric arrangements, organic production, and introspective songwriting recur across your taste profile.';
+  } else if (topGenre.includes('electronic') || topGenre.includes('house') || topGenre.includes('techno') || topGenre.includes('edm')) {
+    tasteTitle.textContent = 'Synthetic runtime';
+    tasteDesc.textContent = 'Repetition, detailed sound design, and electronic rhythm form the core of your listening environment.';
+  } else if (topGenre.includes('jazz') || topGenre.includes('blues') || topGenre.includes('soul') || topGenre.includes('r&b')) {
+    tasteTitle.textContent = 'Harmonic depth';
+    tasteDesc.textContent = 'Vocal detail, expressive harmony, and groove carry more weight than genre boundaries in your listening.';
+  } else {
+    tasteTitle.textContent = 'Distributed taste';
+    tasteDesc.textContent = 'Your top artists span a broad set of sub-genres without a single category overwhelming the rest.';
+  }
 }
 
 // RENDER GENRES TAB
