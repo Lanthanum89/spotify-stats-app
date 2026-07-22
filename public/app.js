@@ -31,6 +31,8 @@ let nowPlayingState = {
   contextUri: null,
   contextName: null
 };
+let nowPlayingPollCount = 0;
+let miniPlayerControlPending = false;
 
 // --- Spotify API Helper ---
 // apiPath is a path under https://api.spotify.com/v1 (e.g. '/me/top/tracks?...').
@@ -225,10 +227,40 @@ function setupEventListeners() {
   const sidebarEl = document.getElementById('sidebar');
   if (sidebarEl) {
     sidebarEl.addEventListener('click', (e) => {
-      if (e.target.closest('.nav-item, .btn-logout, .user-badge')) return;
+      if (e.target.closest('.nav-item, .btn-logout, .user-badge, .sidebar-mini-player')) return;
       const collapsed = !sidebarEl.classList.contains('collapsed');
       applySidebarCollapsedState(collapsed);
       localStorage.setItem('sidebar-collapsed', String(collapsed));
+    });
+  }
+
+  // Sidebar mini player — skip controls (stop propagation so they don't
+  // also trigger the click-anywhere sidebar collapse toggle above)
+  const miniPrev = document.getElementById('mini-player-prev');
+  const miniPlay = document.getElementById('mini-player-play');
+  const miniNext = document.getElementById('mini-player-next');
+  if (miniPrev) {
+    miniPrev.addEventListener('click', (e) => {
+      e.stopPropagation();
+      miniPlayerControl('POST', '/me/player/previous');
+    });
+  }
+  if (miniNext) {
+    miniNext.addEventListener('click', (e) => {
+      e.stopPropagation();
+      miniPlayerControl('POST', '/me/player/next');
+    });
+  }
+  if (miniPlay) {
+    miniPlay.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasPlaying = nowPlayingState.isPlaying;
+      // Optimistic flip so the button feels instant instead of waiting on the network.
+      nowPlayingState.isPlaying = !wasPlaying;
+      updateMiniPlayerPlayIcon();
+      const badge = document.getElementById('now-playing-status-badge');
+      if (badge) badge.classList.toggle('hidden', !nowPlayingState.isPlaying);
+      miniPlayerControl('PUT', wasPlaying ? '/me/player/pause' : '/me/player/play');
     });
   }
 
@@ -656,12 +688,14 @@ function renderNowPlayingIdle() {
   document.getElementById('now-playing-status-badge').classList.add('hidden');
   document.getElementById('now-playing-content').innerHTML =
     '<div class="loading-inline">Nothing playing right now. Start a track on Spotify to see it here.</div>';
+  hideSidebarMiniPlayer();
 }
 
 function renderNowPlayingNeedsReconnect() {
   document.getElementById('now-playing-status-badge').classList.add('hidden');
   document.getElementById('now-playing-content').innerHTML =
     '<div class="loading-inline">Reconnect your Spotify account to enable Now Playing (needs one extra permission).</div>';
+  hideSidebarMiniPlayer();
 }
 
 async function renderNowPlayingActive(data) {
@@ -687,11 +721,12 @@ async function renderNowPlayingActive(data) {
   const badge = document.getElementById('now-playing-status-badge');
   badge.classList.toggle('hidden', !nowPlayingState.isPlaying);
 
+  const cover = track.album.images && track.album.images.length > 0
+    ? track.album.images[0].url
+    : 'https://via.placeholder.com/64';
+  const artistsName = track.artists.map((a) => a.name).join(', ');
+
   if (isNewTrack || !document.getElementById('now-playing-track')) {
-    const cover = track.album.images && track.album.images.length > 0
-      ? track.album.images[0].url
-      : 'https://via.placeholder.com/64';
-    const artistsName = track.artists.map((a) => a.name).join(', ');
     const spotifyUrl = track.external_urls.spotify;
 
     document.getElementById('now-playing-content').innerHTML = `
@@ -713,7 +748,129 @@ async function renderNowPlayingActive(data) {
     `;
   }
 
+  renderSidebarMiniPlayer(track, cover, artistsName);
+  updateMiniPlayerPlayIcon();
+  nowPlayingPollCount++;
+  refreshSidebarQueue(isNewTrack);
+
   updateNowPlayingProgressUI();
+}
+
+// --- SIDEBAR MINI PLAYER ---
+// Compact echo of the Overview Now Playing panel, shown above the user's
+// name in the sidebar footer: cover, track/artist, skip controls, and a
+// small upcoming-queue preview.
+
+function renderSidebarMiniPlayer(track, cover, artistsName) {
+  const panel = document.getElementById('sidebar-mini-player');
+  if (!panel) return;
+  panel.classList.remove('hidden');
+
+  const coverEl = document.getElementById('mini-player-cover');
+  const trackEl = document.getElementById('mini-player-track');
+  const artistEl = document.getElementById('mini-player-artist');
+  if (coverEl) { coverEl.src = cover; coverEl.alt = track.name; }
+  if (trackEl) { trackEl.textContent = track.name; trackEl.title = track.name; }
+  if (artistEl) { artistEl.textContent = artistsName; artistEl.title = artistsName; }
+}
+
+function hideSidebarMiniPlayer() {
+  const panel = document.getElementById('sidebar-mini-player');
+  if (panel) panel.classList.add('hidden');
+  const list = document.getElementById('mini-player-queue');
+  if (list) { list.innerHTML = ''; list.classList.add('hidden'); }
+  nowPlayingPollCount = 0;
+}
+
+function updateMiniPlayerPlayIcon() {
+  const icon = document.getElementById('mini-player-play-icon');
+  if (!icon) return;
+  icon.innerHTML = nowPlayingState.isPlaying
+    ? '<path d="M6 5h4v14H6zm8 0h4v14h-4z"></path>'
+    : '<path d="M8 5v14l11-7z"></path>';
+}
+
+const MINI_PLAYER_QUEUE_REFRESH_EVERY_N_POLLS = 4; // ~20s at the 5s poll interval
+
+async function refreshSidebarQueue(force) {
+  if (!force && nowPlayingPollCount % MINI_PLAYER_QUEUE_REFRESH_EVERY_N_POLLS !== 0) return;
+
+  try {
+    const response = await spotifyFetch('/me/player/queue');
+    const data = await response.json();
+    renderSidebarQueue(data.queue || []);
+  } catch (err) {
+    // Needs user-read-playback-state (older sessions won't have it yet) —
+    // just leave the queue preview empty rather than erroring.
+  }
+}
+
+function renderSidebarQueue(queue) {
+  const list = document.getElementById('mini-player-queue');
+  if (!list) return;
+
+  const upcoming = queue.slice(0, 3);
+  if (upcoming.length === 0) {
+    list.innerHTML = '';
+    list.classList.add('hidden');
+    return;
+  }
+
+  list.classList.remove('hidden');
+  list.innerHTML = upcoming.map((track) => {
+    const artists = (track.artists || []).map((a) => a.name).join(', ');
+    return `<li class="mini-player-queue-item" title="${track.name} — ${artists}">${track.name}</li>`;
+  }).join('');
+}
+
+async function miniPlayerControl(method, path) {
+  if (miniPlayerControlPending) return;
+  miniPlayerControlPending = true;
+  setMiniPlayerControlsDisabled(true);
+  hideMiniPlayerError();
+
+  try {
+    await SpotifyAuth.apiRequest(path, { method });
+    // Optimistic UI updates instantly (see button handlers); this just
+    // resyncs the exact state once Spotify has actually applied the change.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await pollNowPlaying();
+  } catch (err) {
+    if (err.status === 403) {
+      showMiniPlayerError('Playback control needs Spotify Premium.');
+    } else if (err.status === 404) {
+      showMiniPlayerError('No active Spotify device found.');
+    } else {
+      showMiniPlayerError('Playback control failed.');
+    }
+  } finally {
+    miniPlayerControlPending = false;
+    setMiniPlayerControlsDisabled(false);
+  }
+}
+
+function setMiniPlayerControlsDisabled(disabled) {
+  ['mini-player-prev', 'mini-player-play', 'mini-player-next'].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = disabled;
+  });
+}
+
+let miniPlayerErrorTimer = null;
+function showMiniPlayerError(message) {
+  const el = document.getElementById('mini-player-error');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove('hidden');
+  if (miniPlayerErrorTimer) clearTimeout(miniPlayerErrorTimer);
+  miniPlayerErrorTimer = setTimeout(hideMiniPlayerError, 4000);
+}
+
+function hideMiniPlayerError() {
+  const el = document.getElementById('mini-player-error');
+  if (!el) return;
+  el.classList.add('hidden');
+  if (miniPlayerErrorTimer) { clearTimeout(miniPlayerErrorTimer); miniPlayerErrorTimer = null; }
 }
 
 async function fetchNowPlayingContextName(context, contextUri) {
@@ -744,7 +901,8 @@ function tickNowPlayingProgress() {
 function updateNowPlayingProgressUI() {
   const fill = document.getElementById('now-playing-progress-fill');
   const elapsedEl = document.getElementById('now-playing-elapsed');
-  if (!fill || !elapsedEl) return;
+  const miniFill = document.getElementById('mini-player-progress-fill');
+  if ((!fill || !elapsedEl) && !miniFill) return;
 
   let displayedMs = nowPlayingState.progressMs;
   if (nowPlayingState.isPlaying) {
@@ -753,8 +911,9 @@ function updateNowPlayingProgressUI() {
   displayedMs = Math.min(displayedMs, nowPlayingState.durationMs);
 
   const percentage = nowPlayingState.durationMs > 0 ? (displayedMs / nowPlayingState.durationMs) * 100 : 0;
-  fill.style.width = `${percentage}%`;
-  elapsedEl.textContent = formatDuration(displayedMs);
+  if (fill) fill.style.width = `${percentage}%`;
+  if (elapsedEl) elapsedEl.textContent = formatDuration(displayedMs);
+  if (miniFill) miniFill.style.width = `${percentage}%`;
 }
 
 // Render Mini Genres List on Overview

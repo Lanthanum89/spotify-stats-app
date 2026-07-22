@@ -6,7 +6,7 @@
   const AUTH_ENDPOINT = 'https://accounts.spotify.com/authorize';
   const TOKEN_ENDPOINT = 'https://accounts.spotify.com/api/token';
   const API_BASE = 'https://api.spotify.com/v1';
-  const SCOPES = 'user-read-private user-read-email user-top-read user-read-recently-played user-read-currently-playing playlist-read-private';
+  const SCOPES = 'user-read-private user-read-email user-top-read user-read-recently-played user-read-currently-playing user-read-playback-state user-modify-playback-state playlist-read-private';
   const REFRESH_MARGIN_MS = 60 * 1000; // refresh if the token expires within this window
 
   const STORAGE_KEYS = {
@@ -214,13 +214,16 @@
   }
 
   // Thin fetch wrapper for api.spotify.com/v1/* — path should start with '/'.
-  async function apiFetch(path) {
+  // options.method defaults to GET; playback control endpoints (PUT/POST)
+  // pass it explicitly and typically get back a bodyless 204.
+  async function apiRequest(path, options = {}) {
     const token = await getAccessToken();
     if (!token) {
       throw new SpotifyUnauthorizedError('Not authenticated with Spotify');
     }
 
     const response = await fetch(`${API_BASE}${path}`, {
+      method: options.method || 'GET',
       headers: { Authorization: `Bearer ${token}` }
     });
 
@@ -239,12 +242,17 @@
     return response;
   }
 
+  function apiFetch(path) {
+    return apiRequest(path);
+  }
+
   window.SpotifyAuth = {
     connectSpotify,
     handleRedirect,
     getAccessToken,
     isConnected,
     disconnectSpotify,
-    apiFetch
+    apiFetch,
+    apiRequest
   };
 })();
