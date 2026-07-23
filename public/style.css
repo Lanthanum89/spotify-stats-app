@@ -1075,8 +1075,8 @@ body {
 .now-playing-hero-info .panel-heading { margin-bottom: 6px; }
 .now-playing-hero-info .now-playing-title { font-size: 1.1rem; }
 
-.now-playing-side-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.now-playing-side-col .panel { flex: 1; padding: 14px 16px; }
+.now-playing-side-col { align-self: start; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.now-playing-side-col .panel { flex: 0 0 auto; padding: 14px 16px; }
 
 #tab-overview .panel h3 { font-size: 1rem; margin-bottom: 8px; }
 #tab-overview .panel .panel-kicker { display: block; margin-bottom: 2px; }
