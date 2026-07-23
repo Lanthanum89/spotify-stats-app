@@ -413,7 +413,7 @@ body {
 .section-desc { color: var(--muted); font-size: 0.9rem; line-height: 1.55; margin-bottom: 22px; }
 
 .mini-tracks-list, .mini-list { display: flex; flex-direction: column; gap: 7px; }
-.mini-track-item { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 12px; padding: 7px 0 11px; }
+.mini-track-item { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 12px; max-width: 460px; padding: 7px 0 11px; }
 .mini-track-cover { border-radius: 3px; height: 39px; object-fit: cover; width: 39px; }
 .mini-track-info { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .mini-track-title { font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1052,7 +1052,7 @@ body {
    their content is variable-length anyway and benefits less from this. */
 .main-content:has(#tab-overview.active) { padding-top: 16px; padding-bottom: 16px; }
 
-.now-playing-hero { display: grid; gap: 14px; grid-template-columns: minmax(280px, 480px) minmax(300px, 560px); }
+.now-playing-hero { display: grid; gap: 14px; grid-template-columns: minmax(280px, 480px) minmax(300px, 1fr); }
 .now-playing-art-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .now-playing-art-panel {
   aspect-ratio: 1;
