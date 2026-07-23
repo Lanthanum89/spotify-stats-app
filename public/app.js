@@ -2505,8 +2505,27 @@ function escapeHtml(str) {
 
 // PWA install support — only caches the static shell, see sw.js.
 // Relative path so registration resolves correctly under a subpath (e.g. GitHub Pages).
+//
+// Browsers throttle their own passive update checks (as infrequently as once
+// per 24h), which meant a deployed change could sit unnoticed by an already-
+// installed PWA for a long time even though the server had it. So: force an
+// explicit update check on load and whenever the app is foregrounded again,
+// and reload once a new worker actually takes over, so a fresh deploy is
+// visible the next time the user opens the app rather than after a wait.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js');
+  window.addEventListener('load', async () => {
+    const registration = await navigator.serviceWorker.register('sw.js');
+
+    registration.update();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) registration.update();
+    });
+
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    });
   });
 }
