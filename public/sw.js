@@ -1,4 +1,4 @@
-const CACHE_NAME = 'soundtracks-shell-v2'
+const CACHE_NAME = 'soundtracks-shell-v3'
 
 // Resolve shell URLs relative to the service worker's own scope so this
 // works whether the app is served from the domain root (local dev) or a
