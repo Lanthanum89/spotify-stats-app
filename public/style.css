@@ -364,8 +364,8 @@ body {
 }
 .now-playing-controls-error { color: var(--danger, #e18088); display: block; font-size: 0.7rem; text-align: center; width: 100%; }
 
-.main-content { display: flex; flex-direction: column; height: 100vh; overflow-y: auto; padding: 34px 42px 60px; }
-.content-header { align-items: center; display: flex; flex-shrink: 0; justify-content: space-between; margin-bottom: 20px; }
+.main-content { height: 100vh; overflow-y: auto; padding: 34px 42px 60px; }
+.content-header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 20px; }
 .content-header h2 { font: 600 1.85rem var(--mono); letter-spacing: -0.05em; }
 .content-header h2::before { color: var(--accent); content: "~/"; font-weight: 400; margin-right: 8px; }
 .time-filters { border: 1px solid var(--line); border-radius: 5px; display: flex; padding: 3px; }
@@ -1044,37 +1044,34 @@ body {
   margin-top: 5px;
 }
 
-/* OVERVIEW — a hero row (big cover art + info/progress/controls underneath
-   it on the left, Up Next/Recently Played stacked on the right) that
-   stretches to fill the full available viewport height instead of sizing to
-   its own content, so there's no dead space below it on tall screens.
-   Scoped to #tab-overview only; other tabs keep the roomier default
-   spacing/scrolling behaviour since their content is variable-length and
-   benefits less from filling the viewport exactly. */
+/* OVERVIEW — a hero row (big square cover art + info/progress/controls
+   underneath it on the left, Up Next/Recently Played stacked on the right,
+   matched to the art column's height) compacted to fit one screen without
+   scrolling at common desktop viewport heights (~800px+). Scoped to
+   #tab-overview only; other tabs keep the roomier default spacing since
+   their content is variable-length anyway and benefits less from this. */
 .main-content:has(#tab-overview.active) { padding-top: 16px; padding-bottom: 16px; }
-#tab-overview.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
-.now-playing-hero { display: grid; flex: 1; gap: 14px; grid-template-columns: minmax(280px, 480px) minmax(300px, 1fr); min-height: 0; }
-.now-playing-art-col { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
+.now-playing-hero { display: grid; gap: 14px; grid-template-columns: minmax(280px, 480px) minmax(300px, 1fr); }
+.now-playing-art-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .now-playing-art-panel {
+  aspect-ratio: 1;
   align-items: center;
   background: var(--surface);
   border: 1px solid rgba(170, 150, 216, 0.08);
   border-radius: var(--radius);
   display: flex;
-  flex: 1;
   justify-content: center;
-  min-height: 0;
   overflow: hidden;
 }
 .now-playing-cover-large { height: 100%; object-fit: cover; width: 100%; }
 .now-playing-art-placeholder { align-items: center; color: var(--dim); display: flex; justify-content: center; }
-.now-playing-hero-info { flex-shrink: 0; padding: 14px 16px; }
+.now-playing-hero-info { padding: 14px 16px; }
 .now-playing-hero-info .panel-heading { margin-bottom: 6px; }
 .now-playing-hero-info .now-playing-title { font-size: 1.1rem; }
 
-.now-playing-side-col { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
-.now-playing-side-col .panel { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; }
+.now-playing-side-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.now-playing-side-col .panel { flex: 1; padding: 14px 16px; }
 
 #tab-overview .panel h3 { font-size: 1rem; margin-bottom: 8px; }
 #tab-overview .panel .panel-kicker { display: block; margin-bottom: 2px; }
