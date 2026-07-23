@@ -1052,7 +1052,7 @@ body {
    their content is variable-length anyway and benefits less from this. */
 .main-content:has(#tab-overview.active) { padding-top: 16px; padding-bottom: 16px; }
 
-.now-playing-hero { display: grid; gap: 14px; grid-template-columns: minmax(280px, 480px) minmax(300px, 1fr); }
+.now-playing-hero { display: grid; gap: 14px; grid-template-columns: minmax(280px, 640px) minmax(260px, 1fr); }
 .now-playing-art-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .now-playing-art-panel {
   aspect-ratio: 1;
