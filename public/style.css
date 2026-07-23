@@ -333,6 +333,7 @@ body {
   width: 40px;
 }
 .mini-player-play-btn:hover:not(:disabled) { background: var(--accent-bright); border-color: var(--accent-bright); color: var(--sidebar); }
+.mini-player-shuffle-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-bright); }
 .mini-player-error { color: var(--danger, #e18088); display: block; font-size: 0.65rem; margin-top: 4px; text-align: center; }
 
 /* OVERVIEW NOW PLAYING — full-size transport controls under the progress bar */
@@ -351,6 +352,16 @@ body {
   width: 34px;
 }
 .now-playing-play-btn:hover:not(:disabled) { background: var(--accent-bright); color: var(--sidebar); }
+.now-playing-shuffle-btn.active { color: var(--accent-bright); }
+.now-playing-shuffle-btn.active::after {
+  content: '';
+  background: var(--accent-bright);
+  border-radius: 50%;
+  display: block;
+  height: 4px;
+  margin: 3px auto 0;
+  width: 4px;
+}
 .now-playing-controls-error { color: var(--danger, #e18088); display: block; font-size: 0.7rem; text-align: center; width: 100%; }
 
 .main-content { display: flex; flex-direction: column; height: 100vh; overflow-y: auto; padding: 34px 42px 60px; }

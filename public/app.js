@@ -43,7 +43,8 @@ let nowPlayingState = {
   durationMs: 0,
   lastSyncedAt: 0,
   contextUri: null,
-  contextName: null
+  contextName: null,
+  shuffleState: false
 };
 let nowPlayingPollCount = 0;
 let miniPlayerControlPending = false;
@@ -252,13 +253,14 @@ function setupEventListeners() {
   }
 
   // Playback transport controls — sidebar mini player and the Overview Now
-  // Playing panel each get their own set of prev/play/next buttons, wired
-  // up identically (stopPropagation so the sidebar's set doesn't also
+  // Playing panel each get their own set of prev/play/next/shuffle buttons,
+  // wired up identically (stopPropagation so the sidebar's set doesn't also
   // trigger the click-anywhere sidebar collapse toggle above).
-  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next }) => {
+  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next, shuffle }) => {
     const prevBtn = document.getElementById(prev);
     const playBtn = document.getElementById(play);
     const nextBtn = document.getElementById(next);
+    const shuffleBtn = document.getElementById(shuffle);
 
     if (prevBtn) {
       prevBtn.addEventListener('click', (e) => {
@@ -282,6 +284,12 @@ function setupEventListeners() {
         const badge = document.getElementById('now-playing-status-badge');
         if (badge) badge.classList.toggle('hidden', !nowPlayingState.isPlaying);
         playbackControl('PUT', wasPlaying ? '/me/player/pause' : '/me/player/play');
+      });
+    }
+    if (shuffleBtn) {
+      shuffleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleShuffle();
       });
     }
   });
@@ -595,9 +603,11 @@ function renderOverview() {
 }
 
 // --- NOW PLAYING ---
-// Polls /me/player/currently-playing periodically for the real state, and
-// ticks a local timer between polls so the progress bar advances smoothly
-// without hammering the API every second.
+// Polls /me/player (rather than /me/player/currently-playing) periodically
+// for the real state — the extra fields cost nothing extra to fetch and
+// /me/player is the only one of the two that reports shuffle_state, which
+// the shuffle toggle needs. Also ticks a local timer between polls so the
+// progress bar advances smoothly without hammering the API every second.
 
 function startNowPlayingPolling() {
   stopNowPlayingPolling();
@@ -634,10 +644,10 @@ function handleNowPlayingVisibilityChange() {
 async function pollNowPlaying() {
   let response;
   try {
-    response = await spotifyFetch('/me/player/currently-playing');
+    response = await spotifyFetch('/me/player');
   } catch (err) {
     if (err.status === 403) {
-      // Session was authorised before user-read-currently-playing existed —
+      // Session was authorised before user-read-playback-state existed —
       // needs a fresh login to pick up the new scope.
       stopNowPlayingPolling();
       renderNowPlayingNeedsReconnect();
@@ -669,7 +679,7 @@ async function pollNowPlaying() {
 }
 
 function renderNowPlayingIdle() {
-  nowPlayingState = { trackId: null, isPlaying: false, progressMs: 0, durationMs: 0, lastSyncedAt: 0, contextUri: null, contextName: null };
+  nowPlayingState = { trackId: null, isPlaying: false, progressMs: 0, durationMs: 0, lastSyncedAt: 0, contextUri: null, contextName: null, shuffleState: false };
   document.getElementById('now-playing-status-badge').classList.add('hidden');
   document.getElementById('now-playing-content').innerHTML =
     '<div class="loading-inline">Nothing playing right now. Start a track on Spotify to see it here.</div>';
@@ -695,6 +705,7 @@ async function renderNowPlayingActive(data) {
   nowPlayingState.durationMs = track.duration_ms || 0;
   nowPlayingState.lastSyncedAt = Date.now();
   nowPlayingState.contextUri = contextUri;
+  nowPlayingState.shuffleState = Boolean(data.shuffle_state);
 
   if (isNewContext) {
     nowPlayingState.contextName = null; // cleared until (if) the fetch below resolves
@@ -736,6 +747,7 @@ async function renderNowPlayingActive(data) {
   renderSidebarMiniPlayer(track, cover, artistsName);
   showNowPlayingControls();
   updateAllPlayIcons();
+  updateAllShuffleButtons();
   nowPlayingPollCount++;
   refreshQueue(isNewTrack);
 
@@ -808,6 +820,15 @@ function updateAllPlayIcons() {
   });
 }
 
+function updateAllShuffleButtons() {
+  ['mini-player-shuffle', 'now-playing-shuffle'].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.classList.toggle('active', nowPlayingState.shuffleState);
+    btn.setAttribute('aria-pressed', String(nowPlayingState.shuffleState));
+  });
+}
+
 const QUEUE_REFRESH_EVERY_N_POLLS = 4; // ~20s at the 5s poll interval
 
 async function refreshQueue(force) {
@@ -859,8 +880,8 @@ function renderOverviewQueue(queue) {
 // Playback transport controls — shared between the sidebar mini player and
 // the Overview Now Playing panel, which each have their own button/error IDs.
 const TRANSPORT_BUTTON_SETS = [
-  { prev: 'mini-player-prev', play: 'mini-player-play', next: 'mini-player-next', error: 'mini-player-error' },
-  { prev: 'now-playing-prev', play: 'now-playing-play', next: 'now-playing-next', error: 'now-playing-controls-error' },
+  { prev: 'mini-player-prev', play: 'mini-player-play', next: 'mini-player-next', shuffle: 'mini-player-shuffle', error: 'mini-player-error' },
+  { prev: 'now-playing-prev', play: 'now-playing-play', next: 'now-playing-next', shuffle: 'now-playing-shuffle', error: 'now-playing-controls-error' },
 ];
 
 async function playbackControl(method, path) {
@@ -890,12 +911,19 @@ async function playbackControl(method, path) {
 }
 
 function setAllControlsDisabled(disabled) {
-  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next }) => {
-    [prev, play, next].forEach((id) => {
+  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next, shuffle }) => {
+    [prev, play, next, shuffle].forEach((id) => {
       const btn = document.getElementById(id);
       if (btn) btn.disabled = disabled;
     });
   });
+}
+
+async function toggleShuffle() {
+  const target = !nowPlayingState.shuffleState;
+  nowPlayingState.shuffleState = target; // optimistic
+  updateAllShuffleButtons();
+  await playbackControl('PUT', `/me/player/shuffle?state=${target}`);
 }
 
 let controlErrorTimer = null;
