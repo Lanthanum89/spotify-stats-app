@@ -1062,7 +1062,12 @@ body {
   border-radius: var(--radius);
   display: flex;
   justify-content: center;
+  margin: 0 auto;
   overflow: hidden;
+  /* Square, capped by the grid column's width (up to 480px) but also by
+     available viewport height (roughly header + info panel + paddings),
+     so short/wide viewports shrink it instead of overflowing the page. */
+  width: min(100%, calc(100vh - 320px));
 }
 .now-playing-cover-large { height: 100%; object-fit: cover; width: 100%; }
 .now-playing-art-placeholder { align-items: center; color: var(--dim); display: flex; justify-content: center; }
