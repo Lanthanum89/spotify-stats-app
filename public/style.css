@@ -1050,10 +1050,11 @@ body {
    scrolling at common desktop viewport heights (~800px+). Scoped to
    #tab-overview only; other tabs keep the roomier default spacing since
    their content is variable-length anyway and benefits less from this. */
-.main-content:has(#tab-overview.active) { padding-top: 16px; padding-bottom: 16px; }
+.main-content:has(#tab-overview.active) { padding-top: 8px; padding-bottom: 8px; }
+.main-content:has(#tab-overview.active) .content-header { margin-bottom: 8px; }
 
-.now-playing-hero { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
-.now-playing-art-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.now-playing-hero { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+.now-playing-art-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .now-playing-art-panel {
   aspect-ratio: 1;
   align-items: center;
@@ -1062,21 +1063,19 @@ body {
   border-radius: var(--radius);
   display: flex;
   justify-content: center;
-  margin: 0 auto;
   overflow: hidden;
-  /* Square, capped by the grid column's width (up to 480px) but also by
-     available viewport height (roughly header + info panel + paddings),
-     so short/wide viewports shrink it instead of overflowing the page. */
-  width: min(100%, calc(100vh - 320px));
+  width: 100%;
 }
 .now-playing-cover-large { height: 100%; object-fit: cover; width: 100%; }
 .now-playing-art-placeholder { align-items: center; color: var(--dim); display: flex; justify-content: center; }
-.now-playing-hero-info { padding: 14px 16px; }
-.now-playing-hero-info .panel-heading { margin-bottom: 6px; }
+.now-playing-hero-info { padding: 8px 16px; }
+.now-playing-hero-info .panel-heading { margin-bottom: 2px; }
 .now-playing-hero-info .now-playing-title { font-size: 1.1rem; }
+.now-playing-hero-info .now-playing-progress-wrapper { margin-top: 6px; }
+.now-playing-hero-info .now-playing-controls { margin-top: 8px; }
 
-.now-playing-side-col { align-self: start; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.now-playing-side-col .panel { flex: 0 0 auto; padding: 14px 16px; }
+.now-playing-side-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.now-playing-side-col .panel { flex: 1; padding: 14px 16px; }
 
 #tab-overview .panel h3 { font-size: 1rem; margin-bottom: 8px; }
 #tab-overview .panel .panel-kicker { display: block; margin-bottom: 2px; }
