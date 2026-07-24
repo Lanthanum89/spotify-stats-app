@@ -28,7 +28,8 @@ let appData = {
   profile: null,
   topTracks: {}, // Keyed by range
   topArtists: {}, // Keyed by range
-  recentlyPlayed: null
+  recentlyPlayed: null,
+  queue: [] // Latest fetched "up next" queue, for Overview's teaser
 };
 
 // Now Playing polling state
@@ -239,6 +240,15 @@ function setupEventListeners() {
     if (window.innerWidth > 800) closeMobileMenu();
   });
 
+  // Re-fit the Overview teasers whenever the viewport (and so the hero's
+  // rendered size) changes — debounced since resize fires continuously
+  // while dragging a window edge.
+  let overviewFitResizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(overviewFitResizeTimer);
+    overviewFitResizeTimer = setTimeout(fitOverviewSideLists, 150);
+  });
+
   // Collapsible sidebar (desktop) — click any empty area of the rail itself
   // (not a nav item, the user badge, or logout) to toggle collapsed state.
   applySidebarCollapsedState(localStorage.getItem('sidebar-collapsed') === 'true');
@@ -249,6 +259,9 @@ function setupEventListeners() {
       const collapsed = !sidebarEl.classList.contains('collapsed');
       applySidebarCollapsedState(collapsed);
       localStorage.setItem('sidebar-collapsed', String(collapsed));
+      // Wait for the collapse transition (0.25s) to finish before
+      // re-measuring the hero's now-different width.
+      setTimeout(fitOverviewSideLists, 300);
     });
   }
 
@@ -571,34 +584,113 @@ function hideDashboardError() {
 // RENDER OVERVIEW TAB
 function renderOverview() {
   if (!appData.profile || !appData.recentlyPlayed) return;
+  fitOverviewSideLists();
+}
 
+// Builds one mini-track-item row shared by the Up Next and Recently Played
+// teasers; metaHtml is the trailing bit (relative time, or nothing).
+function buildMiniTrackItem(track, metaHtml) {
+  const cover = track.album && track.album.images && track.album.images.length > 0
+    ? track.album.images[0].url
+    : 'https://via.placeholder.com/44';
+  const artistsName = (track.artists || []).map(a => a.name).join(', ');
+
+  const div = document.createElement('div');
+  div.className = 'mini-track-item';
+  div.innerHTML = `
+    <img class="mini-track-cover" src="${cover}" alt="${track.name}">
+    <div class="mini-track-info">
+      <span class="mini-track-title">${track.name}</span>
+      <span class="mini-track-artist">${artistsName}</span>
+    </div>
+    ${metaHtml || ''}
+  `;
+  return div;
+}
+
+function renderRecentListCount(count) {
+  const list = document.getElementById('overview-recent-list');
+  if (!list) return;
   const recent = appData.recentlyPlayed;
+  if (!recent || !recent.items) return;
 
-  // Recently Played Teaser
-  const recentList = document.getElementById('overview-recent-list');
-  recentList.innerHTML = '';
-  if (recent && recent.items) {
-    recent.items.slice(0, 4).forEach(item => {
-      const track = item.track;
-      const cover = track.album.images && track.album.images.length > 0
-        ? track.album.images[0].url
-        : 'https://via.placeholder.com/44';
-      const artistsName = track.artists.map(a => a.name).join(', ');
+  list.innerHTML = '';
+  recent.items.slice(0, count).forEach(item => {
+    const metaHtml = `<div class="mini-track-meta"><span>${formatRelativeTime(item.played_at)}</span></div>`;
+    list.appendChild(buildMiniTrackItem(item.track, metaHtml));
+  });
+}
 
-      const div = document.createElement('div');
-      div.className = 'mini-track-item';
-      div.innerHTML = `
-        <img class="mini-track-cover" src="${cover}" alt="${track.name}">
-        <div class="mini-track-info">
-          <span class="mini-track-title">${track.name}</span>
-          <span class="mini-track-artist">${artistsName}</span>
-        </div>
-        <div class="mini-track-meta">
-          <span>${formatRelativeTime(item.played_at)}</span>
-        </div>
-      `;
-      recentList.appendChild(div);
-    });
+function renderQueueListCount(count) {
+  const list = document.getElementById('overview-queue-list');
+  if (!list) return;
+
+  const upcoming = appData.queue.slice(0, count);
+  if (upcoming.length === 0) {
+    list.innerHTML = '<div class="loading-inline">Nothing queued right now.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  upcoming.forEach((track) => list.appendChild(buildMiniTrackItem(track)));
+}
+
+// Fills Up Next / Recently Played with as many real rows as fit alongside
+// the hero's actual rendered height, rather than a fixed count that's
+// either too sparse on a big screen or overflows on a smaller one. Grows
+// each list one row at a time, alternating, measuring the real DOM after
+// each addition, and backs off the moment adding a row would make the
+// side column taller than the hero column.
+const OVERVIEW_LIST_MAX_ITEMS = 12; // sane ceiling regardless of available space
+function fitOverviewSideLists() {
+  const artCol = document.querySelector('.now-playing-art-col');
+  const sideCol = document.querySelector('.now-playing-side-col');
+  if (!artCol || !sideCol) return;
+  // offsetParent is null while the Overview tab-pane isn't the active one
+  // (display:none ancestor) — bail rather than measure a zero-height hero
+  // and shrink both lists down to nothing.
+  if (!artCol.offsetParent) return;
+
+  // Below this breakpoint the hero stacks into a single column (see
+  // style.css), so there's no shared row of height to fit into — just
+  // show a small, fixed number and let the page scroll normally.
+  if (window.matchMedia('(max-width: 900px)').matches) {
+    renderQueueListCount(3);
+    renderRecentListCount(3);
+    return;
+  }
+
+  const target = artCol.getBoundingClientRect().height;
+  const queueLen = appData.queue.length;
+  const recentLen = (appData.recentlyPlayed && appData.recentlyPlayed.items || []).length;
+
+  let queueCount = Math.min(1, queueLen);
+  let recentCount = Math.min(1, recentLen);
+  renderQueueListCount(queueCount);
+  renderRecentListCount(recentCount);
+
+  let grew = true;
+  while (grew && queueCount + recentCount < OVERVIEW_LIST_MAX_ITEMS * 2) {
+    grew = false;
+
+    if (queueCount < queueLen && queueCount < OVERVIEW_LIST_MAX_ITEMS) {
+      renderQueueListCount(queueCount + 1);
+      if (sideCol.getBoundingClientRect().height <= target) {
+        queueCount++;
+        grew = true;
+      } else {
+        renderQueueListCount(queueCount);
+      }
+    }
+
+    if (recentCount < recentLen && recentCount < OVERVIEW_LIST_MAX_ITEMS) {
+      renderRecentListCount(recentCount + 1);
+      if (sideCol.getBoundingClientRect().height <= target) {
+        recentCount++;
+        grew = true;
+      } else {
+        renderRecentListCount(recentCount);
+      }
+    }
   }
 }
 
@@ -777,7 +869,8 @@ function hideSidebarMiniPlayer() {
   hideNowPlayingControls();
   hideNowPlayingArtTile();
   nowPlayingPollCount = 0;
-  renderOverviewQueue([]);
+  appData.queue = [];
+  fitOverviewSideLists();
 }
 
 // Big cover-art tile on Overview, in the teaser row (replaces the old Top
@@ -837,44 +930,12 @@ async function refreshQueue(force) {
   try {
     const response = await spotifyFetch('/me/player/queue');
     const data = await response.json();
-    renderOverviewQueue(data.queue || []);
+    appData.queue = data.queue || [];
+    fitOverviewSideLists();
   } catch (err) {
     // Needs user-read-playback-state (older sessions won't have it yet) —
     // just leave the queue preview empty rather than erroring.
   }
-}
-
-// "Up Next" panel on the Overview tab — a roomier version of the sidebar's
-// queue preview, reusing the same mini-track-item markup as the other
-// Overview teaser lists.
-function renderOverviewQueue(queue) {
-  const list = document.getElementById('overview-queue-list');
-  if (!list) return;
-
-  const upcoming = queue.slice(0, 4);
-  if (upcoming.length === 0) {
-    list.innerHTML = '<div class="loading-inline">Nothing queued right now.</div>';
-    return;
-  }
-
-  list.innerHTML = '';
-  upcoming.forEach((track) => {
-    const cover = track.album && track.album.images && track.album.images.length > 0
-      ? track.album.images[0].url
-      : 'https://via.placeholder.com/44';
-    const artistsName = (track.artists || []).map((a) => a.name).join(', ');
-
-    const div = document.createElement('div');
-    div.className = 'mini-track-item';
-    div.innerHTML = `
-      <img class="mini-track-cover" src="${cover}" alt="${track.name}">
-      <div class="mini-track-info">
-        <span class="mini-track-title">${track.name}</span>
-        <span class="mini-track-artist">${artistsName}</span>
-      </div>
-    `;
-    list.appendChild(div);
-  });
 }
 
 // Playback transport controls — shared between the sidebar mini player and
