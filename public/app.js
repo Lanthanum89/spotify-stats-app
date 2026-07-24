@@ -578,7 +578,7 @@ function renderOverview() {
   const recentList = document.getElementById('overview-recent-list');
   recentList.innerHTML = '';
   if (recent && recent.items) {
-    recent.items.slice(0, 6).forEach(item => {
+    recent.items.slice(0, 4).forEach(item => {
       const track = item.track;
       const cover = track.album.images && track.album.images.length > 0
         ? track.album.images[0].url
@@ -851,7 +851,7 @@ function renderOverviewQueue(queue) {
   const list = document.getElementById('overview-queue-list');
   if (!list) return;
 
-  const upcoming = queue.slice(0, 6);
+  const upcoming = queue.slice(0, 4);
   if (upcoming.length === 0) {
     list.innerHTML = '<div class="loading-inline">Nothing queued right now.</div>';
     return;
