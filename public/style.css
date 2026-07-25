@@ -528,7 +528,7 @@ body {
   background: var(--sidebar);
 }
 .mobile-topbar-brand { align-items: center; display: flex; flex: 1; gap: 9px; color: var(--text); font: 600 1.05rem var(--mono); letter-spacing: -0.04em; }
-.mobile-topbar .btn-logout { color: var(--dim); padding: 6px; }
+.mobile-topbar .btn-logout { align-items: center; color: var(--dim); display: flex; justify-content: center; padding: 6px; }
 .mobile-topbar .btn-logout:hover { color: var(--accent-bright); }
 .mobile-menu-toggle {
   align-items: center;
