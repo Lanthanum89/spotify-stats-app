@@ -215,16 +215,26 @@
 
   // Thin fetch wrapper for api.spotify.com/v1/* — path should start with '/'.
   // options.method defaults to GET; playback control endpoints (PUT/POST)
-  // pass it explicitly and typically get back a bodyless 204.
+  // pass it explicitly and typically get back a bodyless 204. options.body,
+  // if present, is JSON-encoded (e.g. { uris: [...] } to start playback of
+  // specific tracks, or { context_uri } for an album/artist/playlist).
   async function apiRequest(path, options = {}) {
     const token = await getAccessToken();
     if (!token) {
       throw new SpotifyUnauthorizedError('Not authenticated with Spotify');
     }
 
+    const headers = { Authorization: `Bearer ${token}` };
+    let body;
+    if (options.body) {
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify(options.body);
+    }
+
     const response = await fetch(`${API_BASE}${path}`, {
       method: options.method || 'GET',
-      headers: { Authorization: `Bearer ${token}` }
+      headers,
+      body
     });
 
     if (response.status === 401) {

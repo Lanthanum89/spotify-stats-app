@@ -1124,3 +1124,55 @@ body {
   border-color: var(--accent);
 }
 
+/* GLOBAL SEARCH TAB */
+.search-type-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.search-type-btn {
+  padding: 8px 16px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--mono);
+}
+
+.search-type-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(170, 150, 216, 0.05);
+}
+
+.search-type-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent-bright);
+  border-color: var(--accent);
+}
+
+#search-prompt-state,
+#search-no-results {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+
+.btn-search-play svg { margin-left: 2px; }
+
+/* PERSISTENT HEADER SEARCH — same look as the in-tab search box, just
+   narrower and pinned in the top bar so it's reachable from any tab. */
+.header-search-wrapper {
+  max-width: 240px;
+  flex: 0 0 auto;
+}
+.header-search-wrapper input { padding-top: 8px; padding-bottom: 8px; font-size: 0.85rem; }
+
+@media (max-width: 900px) {
+  .header-search-wrapper { max-width: none; width: 100%; order: 10; }
+}
+
