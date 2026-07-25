@@ -91,6 +91,10 @@
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
           <span>Overview</span>
         </button>
+        <button class="nav-item" data-tab="search" title="Search">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <span>Search</span>
+        </button>
         <button class="nav-item" data-tab="tracks" title="Top Tracks">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
           <span>Top Tracks</span>
@@ -242,6 +246,57 @@
               </div>
               <button class="btn btn-secondary btn-sm margin-top" onclick="switchTab('recent')">See Recently Played</button>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB: SEARCH -->
+      <section id="tab-search" class="tab-pane">
+        <div class="filter-bar panel">
+          <div class="search-input-wrapper">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="global-search-input" placeholder="Search Spotify for a song, artist, album or playlist...">
+          </div>
+        </div>
+
+        <div class="search-type-filters margin-top">
+          <button class="search-type-btn active" data-search-type="all">All</button>
+          <button class="search-type-btn" data-search-type="track">Tracks</button>
+          <button class="search-type-btn" data-search-type="artist">Artists</button>
+          <button class="search-type-btn" data-search-type="album">Albums</button>
+          <button class="search-type-btn" data-search-type="playlist">Playlists</button>
+        </div>
+
+        <span id="search-play-error" class="now-playing-controls-error hidden margin-top" style="display: block; text-align: left;"></span>
+
+        <div id="search-prompt-state" class="loading-inline margin-top">Search Spotify's entire catalogue — tracks, artists, albums and playlists — right from here.</div>
+        <div id="search-loading-indicator" class="loading-inline margin-top hidden">Searching Spotify...</div>
+        <div id="search-no-results" class="loading-inline margin-top hidden">No results found. Try a different search.</div>
+
+        <div id="search-results-wrapper" class="hidden">
+          <div id="search-library-section" class="hidden margin-top">
+            <span class="analysis-section-title">In Your Library</span>
+            <div id="search-library-grid" class="tracks-grid margin-top"></div>
+          </div>
+
+          <div id="search-tracks-section" class="hidden margin-top">
+            <span class="analysis-section-title">Tracks</span>
+            <div id="search-tracks-grid" class="tracks-grid margin-top"></div>
+          </div>
+
+          <div id="search-artists-section" class="hidden margin-top">
+            <span class="analysis-section-title">Artists</span>
+            <div id="search-artists-grid" class="artists-grid margin-top"></div>
+          </div>
+
+          <div id="search-albums-section" class="hidden margin-top">
+            <span class="analysis-section-title">Albums</span>
+            <div id="search-albums-grid" class="tracks-grid margin-top"></div>
+          </div>
+
+          <div id="search-playlists-section" class="hidden margin-top">
+            <span class="analysis-section-title">Playlists</span>
+            <div id="search-playlists-grid" class="tracks-grid margin-top"></div>
           </div>
         </div>
       </section>
@@ -656,6 +711,10 @@
       <button class="nav-item active" data-tab="overview">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
         <span>Overview</span>
+      </button>
+      <button class="nav-item" data-tab="search">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <span>Search</span>
       </button>
       <button class="nav-item" data-tab="tracks">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
