@@ -1164,3 +1164,15 @@ body {
 
 .btn-search-play svg { margin-left: 2px; }
 
+/* PERSISTENT HEADER SEARCH — same look as the in-tab search box, just
+   narrower and pinned in the top bar so it's reachable from any tab. */
+.header-search-wrapper {
+  max-width: 240px;
+  flex: 0 0 auto;
+}
+.header-search-wrapper input { padding-top: 8px; padding-bottom: 8px; font-size: 0.85rem; }
+
+@media (max-width: 900px) {
+  .header-search-wrapper { max-width: none; width: 100%; order: 10; }
+}
+

@@ -222,6 +222,7 @@ function setupEventListeners() {
     button.addEventListener('click', () => {
       const tabId = button.getAttribute('data-tab');
       switchTab(tabId);
+      if (tabId === 'search') focusSearchInput();
       if (button.closest('#mobile-nav-drawer')) closeMobileMenu();
     });
   });
@@ -472,6 +473,11 @@ function switchTab(tabId) {
     }
   });
 
+  // Hide the persistent header search on the Search tab itself — it already
+  // has its own, more prominent search box.
+  const headerSearchWrapper = document.getElementById('header-search-wrapper');
+  if (headerSearchWrapper) headerSearchWrapper.classList.toggle('hidden', tabId === 'search');
+
   // Show/Hide time range filter and view toggle controls
   const timeFilter = document.getElementById('time-filter-container');
   const viewToggle = document.getElementById('view-toggle-container');
@@ -520,7 +526,6 @@ function switchTab(tabId) {
     renderOverview();
   } else if (tabId === 'search') {
     renderLocalSearchResults();
-    focusSearchInput();
   } else if (tabId === 'tracks') {
     loadTopTracks();
   } else if (tabId === 'artists') {
@@ -2586,16 +2591,24 @@ let searchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
 function initSearchTab() {
   const input = document.getElementById('global-search-input');
   if (input) {
-    input.addEventListener('input', (e) => {
-      searchQuery = e.target.value.trim();
-      clearTimeout(searchDebounceTimer);
-      renderLocalSearchResults();
+    input.addEventListener('input', (e) => onSearchQueryChange(e.target.value, input));
+  }
 
-      if (searchQuery.length < SEARCH_MIN_CHARS) {
-        clearSpotifySearchResults();
-        return;
-      }
-      searchDebounceTimer = setTimeout(() => runSpotifySearch(searchQuery), SEARCH_DEBOUNCE_MS);
+  // Persistent header search (visible on every tab except Search itself) —
+  // typing there jumps to the Search tab and drives the same search state.
+  const headerInput = document.getElementById('header-search-input');
+  if (headerInput) {
+    headerInput.addEventListener('input', (e) => {
+      if (currentTab !== 'search') switchTab('search');
+      onSearchQueryChange(e.target.value, headerInput);
+    });
+  }
+
+  const mobileSearchBtn = document.getElementById('btn-mobile-search');
+  if (mobileSearchBtn) {
+    mobileSearchBtn.addEventListener('click', () => {
+      switchTab('search');
+      focusSearchInput();
     });
   }
 
@@ -2618,6 +2631,29 @@ function initSearchTab() {
 function focusSearchInput() {
   const input = document.getElementById('global-search-input');
   if (input) input.focus();
+}
+
+// Shared by both the in-tab search box and the persistent header search box
+// so either one can drive the same search state, staying in sync with
+// whichever one the user isn't actively typing in.
+function onSearchQueryChange(value, sourceInput) {
+  searchQuery = value.trim();
+  syncSearchInputValues(value, sourceInput);
+  clearTimeout(searchDebounceTimer);
+  renderLocalSearchResults();
+
+  if (searchQuery.length < SEARCH_MIN_CHARS) {
+    clearSpotifySearchResults();
+    return;
+  }
+  searchDebounceTimer = setTimeout(() => runSpotifySearch(searchQuery), SEARCH_DEBOUNCE_MS);
+}
+
+function syncSearchInputValues(value, sourceInput) {
+  ['global-search-input', 'header-search-input'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && el !== sourceInput && el.value !== value) el.value = value;
+  });
 }
 
 // Matches against whatever top-tracks/top-artists ranges and recently-played
