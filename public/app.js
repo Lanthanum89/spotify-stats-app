@@ -455,6 +455,7 @@ function setupEventListeners() {
 // Switch tabs logic
 function switchTab(tabId) {
   currentTab = tabId;
+  closeHeaderSearchDropdown();
 
   // Stop any playing audio preview on tab switch to prevent ghost audio
   if (activeAudio) {
@@ -2588,6 +2589,17 @@ let searchDebounceTimer = null;
 let searchRequestSeq = 0;
 let searchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
 
+// Header search dropdown — a compact quick-results preview, separate from
+// the full Search tab's own state above so typing in the header doesn't
+// disturb whatever's already on that tab.
+const HEADER_SEARCH_LOCAL_LIMIT = 3;
+const HEADER_SEARCH_LIVE_LIMIT = 6;
+let headerSearchOpen = false;
+let headerSearchLocalResults = { tracks: [], artists: [] };
+let headerSearchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
+let headerSearchDebounceTimer = null;
+let headerSearchRequestSeq = 0;
+
 function initSearchTab() {
   const input = document.getElementById('global-search-input');
   if (input) {
@@ -2595,13 +2607,29 @@ function initSearchTab() {
   }
 
   // Persistent header search (visible on every tab except Search itself) —
-  // typing there jumps to the Search tab and drives the same search state.
+  // typing there opens a quick-results dropdown in place; Enter (or its
+  // footer row) hands the query off to the full Search tab.
   const headerInput = document.getElementById('header-search-input');
-  if (headerInput) {
+  const headerDropdown = document.getElementById('header-search-dropdown');
+  const headerBackdrop = document.getElementById('header-search-backdrop');
+  if (headerInput && headerDropdown && headerBackdrop) {
     headerInput.addEventListener('input', (e) => {
-      if (currentTab !== 'search') switchTab('search');
-      onSearchQueryChange(e.target.value, headerInput);
+      syncSearchInputValues(e.target.value, headerInput);
+      onHeaderSearchQueryChange(e.target.value);
     });
+    headerInput.addEventListener('focus', () => {
+      if (headerInput.value.trim().length >= SEARCH_MIN_CHARS) onHeaderSearchQueryChange(headerInput.value);
+    });
+    headerInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commitHeaderSearch();
+      } else if (e.key === 'Escape') {
+        closeHeaderSearchDropdown();
+        headerInput.blur();
+      }
+    });
+    headerBackdrop.addEventListener('click', closeHeaderSearchDropdown);
   }
 
   const mobileSearchBtn = document.getElementById('btn-mobile-search');
@@ -2654,6 +2682,154 @@ function syncSearchInputValues(value, sourceInput) {
     const el = document.getElementById(id);
     if (el && el !== sourceInput && el.value !== value) el.value = value;
   });
+}
+
+// Drives the header dropdown: local (instant) results render immediately,
+// live Spotify results follow after the usual debounce.
+function onHeaderSearchQueryChange(value) {
+  const query = value.trim();
+  if (query.length < SEARCH_MIN_CHARS) {
+    closeHeaderSearchDropdown();
+    return;
+  }
+
+  headerSearchLocalResults = computeLocalSearchResults(query);
+  renderHeaderSearchDropdown(query);
+  openHeaderSearchDropdown();
+
+  clearTimeout(headerSearchDebounceTimer);
+  headerSearchDebounceTimer = setTimeout(() => runHeaderSearchLive(query), SEARCH_DEBOUNCE_MS);
+}
+
+async function runHeaderSearchLive(query) {
+  const seq = ++headerSearchRequestSeq;
+  try {
+    const res = await spotifyFetch(`/search?q=${encodeURIComponent(query)}&type=track,artist,album,playlist&limit=3`);
+    const data = await res.json();
+    if (seq !== headerSearchRequestSeq) return; // superseded by a newer keystroke or a close
+
+    headerSearchLiveResults = {
+      tracks: (data.tracks && data.tracks.items) || [],
+      artists: (data.artists && data.artists.items) || [],
+      albums: (data.albums && data.albums.items) || [],
+      playlists: ((data.playlists && data.playlists.items) || []).filter(Boolean)
+    };
+    renderHeaderSearchDropdown(query);
+  } catch (err) {
+    if (seq !== headerSearchRequestSeq) return;
+    if (!err.isUnauthorized) {
+      headerSearchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
+      renderHeaderSearchDropdown(query);
+    }
+  }
+}
+
+function renderHeaderSearchDropdown(query) {
+  const dropdown = document.getElementById('header-search-dropdown');
+  if (!dropdown) return;
+
+  const localItems = [
+    ...headerSearchLocalResults.tracks.map((t) => ({ kind: 'track', item: t })),
+    ...headerSearchLocalResults.artists.map((a) => ({ kind: 'artist', item: a }))
+  ].slice(0, HEADER_SEARCH_LOCAL_LIMIT);
+
+  const liveItems = [
+    ...headerSearchLiveResults.tracks.map((t) => ({ kind: 'track', item: t })),
+    ...headerSearchLiveResults.artists.map((a) => ({ kind: 'artist', item: a })),
+    ...headerSearchLiveResults.albums.map((a) => ({ kind: 'album', item: a })),
+    ...headerSearchLiveResults.playlists.map((p) => ({ kind: 'playlist', item: p }))
+  ].slice(0, HEADER_SEARCH_LIVE_LIMIT);
+
+  dropdown.innerHTML = '';
+
+  if (localItems.length === 0 && liveItems.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'header-search-dropdown-empty';
+    empty.textContent = `No quick matches for "${query}" yet.`;
+    dropdown.appendChild(empty);
+  } else {
+    if (localItems.length > 0) dropdown.appendChild(buildHeaderSearchGroup('In Your Library', localItems));
+    if (liveItems.length > 0) dropdown.appendChild(buildHeaderSearchGroup('Spotify', liveItems));
+  }
+
+  const footer = document.createElement('div');
+  footer.className = 'header-search-dropdown-footer';
+  footer.innerHTML = `<span>View all results for "${escapeHtml(query)}"</span><span>&crarr; Enter</span>`;
+  footer.addEventListener('click', commitHeaderSearch);
+  dropdown.appendChild(footer);
+}
+
+function buildHeaderSearchGroup(heading, items) {
+  const group = document.createElement('div');
+  group.className = 'header-search-dropdown-group';
+
+  const headingEl = document.createElement('div');
+  headingEl.className = 'header-search-dropdown-heading';
+  headingEl.textContent = heading;
+  group.appendChild(headingEl);
+
+  items.forEach(({ kind, item }) => {
+    const row = buildHeaderSearchRow(kind, item);
+    if (row) group.appendChild(row);
+  });
+
+  return group;
+}
+
+// Each row links straight to the item on Spotify — a quick jump, distinct
+// from the full Search tab's cards which also offer in-app playback.
+function buildHeaderSearchRow(kind, item) {
+  const meta = getSearchResultMeta(kind, item);
+  if (!meta) return null;
+
+  const row = document.createElement('a');
+  row.className = 'header-search-dropdown-row';
+  row.href = meta.spotifyUrl || '#';
+  row.target = '_blank';
+  row.rel = 'noopener noreferrer';
+  row.innerHTML = `
+    <img class="header-search-dropdown-cover" src="${escapeHtml(meta.cover)}" alt="" loading="lazy">
+    <div class="header-search-dropdown-info">
+      <span class="header-search-dropdown-title">${escapeHtml(meta.title)}</span>
+      <span class="header-search-dropdown-subtitle">${escapeHtml(meta.subtitle)}</span>
+    </div>
+    <span class="header-search-dropdown-kind">${escapeHtml(meta.metaRight)}</span>
+  `;
+  row.addEventListener('click', () => closeHeaderSearchDropdown());
+  return row;
+}
+
+function openHeaderSearchDropdown() {
+  headerSearchOpen = true;
+  document.getElementById('header-search-dropdown').classList.add('visible');
+  document.getElementById('header-search-backdrop').classList.add('visible');
+  document.getElementById('header-search-input').setAttribute('aria-expanded', 'true');
+}
+
+function closeHeaderSearchDropdown() {
+  if (!headerSearchOpen) return;
+  headerSearchOpen = false;
+  headerSearchRequestSeq++; // invalidate any in-flight live search
+
+  const dropdown = document.getElementById('header-search-dropdown');
+  const backdrop = document.getElementById('header-search-backdrop');
+  const input = document.getElementById('header-search-input');
+  if (dropdown) dropdown.classList.remove('visible');
+  if (backdrop) backdrop.classList.remove('visible');
+  if (input) input.setAttribute('aria-expanded', 'false');
+}
+
+// Enter (or the dropdown's footer row) hands the query off to the full
+// Search tab instead of picking any one quick result.
+function commitHeaderSearch() {
+  const headerInput = document.getElementById('header-search-input');
+  const value = headerInput ? headerInput.value.trim() : '';
+  if (value.length < SEARCH_MIN_CHARS) return;
+
+  closeHeaderSearchDropdown();
+  if (currentTab !== 'search') switchTab('search');
+  onSearchQueryChange(value, headerInput);
+  if (headerInput) headerInput.blur();
 }
 
 // Matches against whatever top-tracks/top-artists ranges and recently-played
@@ -2821,58 +2997,70 @@ function updateSearchVisibility() {
   }
 }
 
+// Shared field extraction for any search result kind — used both by the
+// full-page result cards and the header dropdown's compact rows.
+function getSearchResultMeta(kind, item) {
+  if (!item) return null;
+  const placeholder = 'https://via.placeholder.com/150';
+
+  if (kind === 'track') {
+    return {
+      cover: item.album && item.album.images && item.album.images.length ? item.album.images[0].url : placeholder,
+      title: item.name,
+      subtitle: item.artists.map((a) => a.name).join(', '),
+      thirdLine: item.album ? item.album.name : '',
+      metaLeft: formatDuration(item.duration_ms),
+      metaRight: 'TRACK',
+      spotifyUrl: item.external_urls && item.external_urls.spotify,
+      playBody: { uris: [item.uri] }
+    };
+  }
+  if (kind === 'artist') {
+    return {
+      cover: item.images && item.images.length ? item.images[0].url : placeholder,
+      title: item.name,
+      subtitle: item.genres && item.genres.length ? item.genres[0] : 'Artist',
+      thirdLine: '',
+      metaLeft: item.followers ? `${formatFollowers(item.followers.total)} followers` : '',
+      metaRight: 'ARTIST',
+      spotifyUrl: item.external_urls && item.external_urls.spotify,
+      playBody: { context_uri: item.uri }
+    };
+  }
+  if (kind === 'album') {
+    return {
+      cover: item.images && item.images.length ? item.images[0].url : placeholder,
+      title: item.name,
+      subtitle: (item.artists || []).map((a) => a.name).join(', '),
+      thirdLine: item.release_date ? item.release_date.slice(0, 4) : '',
+      metaLeft: typeof item.total_tracks === 'number' ? `${item.total_tracks} tracks` : '',
+      metaRight: item.album_type ? item.album_type.toUpperCase() : 'ALBUM',
+      spotifyUrl: item.external_urls && item.external_urls.spotify,
+      playBody: { context_uri: item.uri }
+    };
+  }
+  if (kind === 'playlist') {
+    return {
+      cover: item.images && item.images.length ? item.images[0].url : placeholder,
+      title: item.name,
+      subtitle: item.owner && item.owner.display_name ? `By ${item.owner.display_name}` : 'Playlist',
+      thirdLine: '',
+      metaLeft: item.tracks && typeof item.tracks.total === 'number' ? `${item.tracks.total} tracks` : '',
+      metaRight: 'PLAYLIST',
+      spotifyUrl: item.external_urls && item.external_urls.spotify,
+      playBody: { context_uri: item.uri }
+    };
+  }
+  return null;
+}
+
 // Builds a card for any search result kind, reusing the existing track-card
 // layout/CSS. Its play button starts real Spotify Connect playback (uris for
 // a single track, context_uri for an artist/album/playlist "start here").
 function buildSearchResultCard(kind, item) {
-  if (!item) return null;
-
-  let cover = 'https://via.placeholder.com/150';
-  let title = '';
-  let subtitle = '';
-  let thirdLine = '';
-  let metaLeft = '';
-  let metaRight = '';
-  let spotifyUrl = '#';
-  let playBody = null;
-
-  if (kind === 'track') {
-    cover = item.album && item.album.images && item.album.images.length ? item.album.images[0].url : cover;
-    title = item.name;
-    subtitle = item.artists.map((a) => a.name).join(', ');
-    thirdLine = item.album ? item.album.name : '';
-    metaLeft = formatDuration(item.duration_ms);
-    metaRight = 'TRACK';
-    spotifyUrl = item.external_urls && item.external_urls.spotify;
-    playBody = { uris: [item.uri] };
-  } else if (kind === 'artist') {
-    cover = item.images && item.images.length ? item.images[0].url : cover;
-    title = item.name;
-    subtitle = item.genres && item.genres.length ? item.genres[0] : 'Artist';
-    metaLeft = item.followers ? `${formatFollowers(item.followers.total)} followers` : '';
-    metaRight = 'ARTIST';
-    spotifyUrl = item.external_urls && item.external_urls.spotify;
-    playBody = { context_uri: item.uri };
-  } else if (kind === 'album') {
-    cover = item.images && item.images.length ? item.images[0].url : cover;
-    title = item.name;
-    subtitle = (item.artists || []).map((a) => a.name).join(', ');
-    thirdLine = item.release_date ? item.release_date.slice(0, 4) : '';
-    metaLeft = typeof item.total_tracks === 'number' ? `${item.total_tracks} tracks` : '';
-    metaRight = item.album_type ? item.album_type.toUpperCase() : 'ALBUM';
-    spotifyUrl = item.external_urls && item.external_urls.spotify;
-    playBody = { context_uri: item.uri };
-  } else if (kind === 'playlist') {
-    cover = item.images && item.images.length ? item.images[0].url : cover;
-    title = item.name;
-    subtitle = item.owner && item.owner.display_name ? `By ${item.owner.display_name}` : 'Playlist';
-    metaLeft = item.tracks && typeof item.tracks.total === 'number' ? `${item.tracks.total} tracks` : '';
-    metaRight = 'PLAYLIST';
-    spotifyUrl = item.external_urls && item.external_urls.spotify;
-    playBody = { context_uri: item.uri };
-  } else {
-    return null;
-  }
+  const meta = getSearchResultMeta(kind, item);
+  if (!meta) return null;
+  const { cover, title, subtitle, thirdLine, metaLeft, metaRight, spotifyUrl, playBody } = meta;
 
   const div = document.createElement('div');
   div.className = 'track-card';

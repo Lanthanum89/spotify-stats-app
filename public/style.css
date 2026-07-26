@@ -1169,10 +1169,87 @@ body {
 .header-search-wrapper {
   max-width: 240px;
   flex: 0 0 auto;
+  z-index: 9;
 }
 .header-search-wrapper input { padding-top: 8px; padding-bottom: 8px; font-size: 0.85rem; }
 
 @media (max-width: 900px) {
   .header-search-wrapper { max-width: none; width: 100%; order: 10; }
+}
+
+/* Dims + blurs everything else while the header search dropdown is open —
+   the wrapper sits above it (z-index 9 vs 8) so the search box and its
+   dropdown stay crisp. Clicking the backdrop closes the dropdown. */
+.header-search-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 10, 15, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 8;
+}
+.header-search-backdrop.visible { opacity: 1; pointer-events: auto; }
+
+/* Quick-results dropdown — a compact preview under the header search box,
+   distinct from the full Search tab's own results grid. Enter (or the
+   footer row) hands the query off to that full page instead. */
+.header-search-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 8px;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.header-search-dropdown.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+.header-search-dropdown-group + .header-search-dropdown-group { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.header-search-dropdown-heading { color: var(--dim); font: 600 0.68rem var(--mono); letter-spacing: 0.08em; padding: 4px 8px 6px; text-transform: uppercase; }
+
+.header-search-dropdown-row {
+  align-items: center;
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  padding: 7px 8px;
+  text-decoration: none;
+}
+.header-search-dropdown-row:hover { background: var(--surface-hover); }
+.header-search-dropdown-cover { border-radius: 5px; flex-shrink: 0; height: 36px; object-fit: cover; width: 36px; }
+.header-search-dropdown-info { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.header-search-dropdown-title { color: var(--text); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-search-dropdown-subtitle { color: var(--muted); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-search-dropdown-kind { color: var(--dim); flex-shrink: 0; font: 0.65rem var(--mono); letter-spacing: 0.05em; text-transform: uppercase; }
+
+.header-search-dropdown-footer {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  color: var(--accent-bright);
+  cursor: pointer;
+  display: flex;
+  font: 500 0.8rem var(--mono);
+  justify-content: space-between;
+  margin-top: 8px;
+  padding: 10px 8px 4px;
+}
+.header-search-dropdown-footer:hover { color: var(--accent); }
+.header-search-dropdown-empty { color: var(--dim); font-size: 0.8rem; padding: 16px 8px; text-align: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .header-search-backdrop, .header-search-dropdown { transition: none; }
 }
 

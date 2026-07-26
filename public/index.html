@@ -78,6 +78,9 @@
     <!-- MOBILE NAV DRAWER + BACKDROP (phones & tablets only — see .mobile-nav-drawer) -->
     <div id="mobile-nav-overlay" class="mobile-nav-overlay"></div>
 
+    <!-- Dims + blurs the rest of the app while the header search dropdown is open -->
+    <div id="header-search-backdrop" class="header-search-backdrop"></div>
+
     <!-- SIDEBAR NAVIGATION -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
@@ -178,7 +181,8 @@
           <!-- PERSISTENT HEADER SEARCH (all tabs except Search itself, which has its own) -->
           <div class="search-input-wrapper header-search-wrapper" id="header-search-wrapper">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input type="text" id="header-search-input" placeholder="Search Spotify...">
+            <input type="text" id="header-search-input" placeholder="Search Spotify..." autocomplete="off" role="combobox" aria-expanded="false" aria-controls="header-search-dropdown">
+            <div id="header-search-dropdown" class="header-search-dropdown" role="listbox"></div>
           </div>
 
           <!-- VIEW TOGGLER (shown for tracks & recent) -->
