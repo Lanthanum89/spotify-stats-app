@@ -203,6 +203,14 @@
       <!-- TAB 1: OVERVIEW -->
       <section id="tab-overview" class="tab-pane active">
         <div class="now-playing-hero">
+          <!-- Blurred, low-opacity wash of the current track's artwork, bled
+               out behind the hero row's gutters. Two stacked layers so a
+               track change can crossfade instead of popping. -->
+          <div class="now-playing-ambient" aria-hidden="true">
+            <div id="now-playing-ambient-a" class="now-playing-ambient-layer"></div>
+            <div id="now-playing-ambient-b" class="now-playing-ambient-layer"></div>
+          </div>
+
           <!-- LEFT: big cover art, with track info + progress + controls stacked directly underneath -->
           <div class="now-playing-art-col">
             <div class="now-playing-art-panel" id="now-playing-art-panel">
