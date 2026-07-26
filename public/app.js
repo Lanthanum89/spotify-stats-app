@@ -48,6 +48,8 @@ let nowPlayingState = {
   shuffleState: false
 };
 let nowPlayingPollCount = 0;
+let ambientBackdropCover = null;
+let ambientBackdropActiveLayer = 'a';
 let miniPlayerControlPending = false;
 
 // --- Spotify API Helper ---
@@ -897,6 +899,7 @@ function renderNowPlayingArtTile(cover, trackName) {
   img.alt = trackName;
   img.classList.remove('hidden');
   placeholder.classList.add('hidden');
+  updateAmbientBackdrop(cover);
 }
 
 function hideNowPlayingArtTile() {
@@ -904,6 +907,38 @@ function hideNowPlayingArtTile() {
   const placeholder = document.getElementById('now-playing-art-placeholder');
   if (img) { img.classList.add('hidden'); img.src = ''; }
   if (placeholder) placeholder.classList.remove('hidden');
+  hideAmbientBackdrop();
+}
+
+// Crossfades the hero's ambient artwork backdrop to a new cover by fading
+// in whichever of the two stacked layers is currently hidden, then handing
+// it the "active" role. No-ops on repeat polls for the same track.
+function updateAmbientBackdrop(cover) {
+  if (!cover || cover === ambientBackdropCover) return;
+  ambientBackdropCover = cover;
+
+  const nextLayerId = ambientBackdropActiveLayer === 'a' ? 'b' : 'a';
+  const nextLayer = document.getElementById(`now-playing-ambient-${nextLayerId}`);
+  const prevLayer = document.getElementById(`now-playing-ambient-${ambientBackdropActiveLayer}`);
+  if (!nextLayer) return;
+
+  nextLayer.style.backgroundImage = `url("${cover}")`;
+  // Force a reflow so the browser registers the new background-image before
+  // the opacity change, otherwise the two can get batched into one paint
+  // and the crossfade never animates.
+  void nextLayer.offsetWidth;
+  nextLayer.classList.add('visible');
+  if (prevLayer) prevLayer.classList.remove('visible');
+
+  ambientBackdropActiveLayer = nextLayerId;
+}
+
+function hideAmbientBackdrop() {
+  ambientBackdropCover = null;
+  ['now-playing-ambient-a', 'now-playing-ambient-b'].forEach((id) => {
+    const layer = document.getElementById(id);
+    if (layer) layer.classList.remove('visible');
+  });
 }
 
 function showNowPlayingControls() {
