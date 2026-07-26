@@ -1053,33 +1053,7 @@ body {
 .main-content:has(#tab-overview.active) { padding-top: 8px; padding-bottom: 8px; }
 .main-content:has(#tab-overview.active) .content-header { margin-bottom: 8px; }
 
-.now-playing-hero { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; position: relative; isolation: isolate; }
-
-/* Ambient artwork backdrop — ships as bled-out, heavily blurred artwork
-   sitting behind the hero row (z-index below its panels via `isolation`
-   above), showing mainly through the gutters between panels since the
-   panels themselves keep solid backgrounds. Bleeds past the row's own
-   edges so the blur never shows a hard rectangle. */
-.now-playing-ambient { position: absolute; inset: -80px; z-index: -1; overflow: hidden; border-radius: var(--radius); pointer-events: none; }
-.now-playing-ambient-layer {
-  position: absolute;
-  inset: 0;
-  background-position: center;
-  background-size: cover;
-  filter: blur(70px) saturate(1.3);
-  transform: scale(1.2);
-  opacity: 0;
-  transition: opacity 1.4s ease;
-}
-.now-playing-ambient-layer.visible { opacity: 0.28; }
-/* Tint back toward the page background so the wash stays subtle and never
-   fights the text/panel contrast sitting in front of it. */
-.now-playing-ambient::after { content: ''; position: absolute; inset: 0; background: var(--bg); opacity: 0.45; }
-
-@media (prefers-reduced-motion: reduce) {
-  .now-playing-ambient-layer { transition: none; }
-}
-
+.now-playing-hero { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
 /* Capped by BOTH the grid track's width (up to half the screen) and by
    available viewport height — art is square, so unconstrained width alone
    could make it (plus the controls panel under it) taller than the
