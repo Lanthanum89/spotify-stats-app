@@ -507,7 +507,7 @@ function switchTab(tabId) {
 
   // Update header title
   const titles = {
-    overview: 'overview',
+    overview: 'now-playing',
     search: 'search',
     tracks: 'top-tracks',
     artists: 'top-artists',
@@ -2801,6 +2801,7 @@ function buildHeaderSearchRow(kind, item) {
 
 function openHeaderSearchDropdown() {
   headerSearchOpen = true;
+  document.getElementById('header-search-wrapper').classList.add('search-active');
   document.getElementById('header-search-dropdown').classList.add('visible');
   document.getElementById('header-search-backdrop').classList.add('visible');
   document.getElementById('header-search-input').setAttribute('aria-expanded', 'true');
@@ -2811,9 +2812,11 @@ function closeHeaderSearchDropdown() {
   headerSearchOpen = false;
   headerSearchRequestSeq++; // invalidate any in-flight live search
 
+  const wrapper = document.getElementById('header-search-wrapper');
   const dropdown = document.getElementById('header-search-dropdown');
   const backdrop = document.getElementById('header-search-backdrop');
   const input = document.getElementById('header-search-input');
+  if (wrapper) wrapper.classList.remove('search-active');
   if (dropdown) dropdown.classList.remove('visible');
   if (backdrop) backdrop.classList.remove('visible');
   if (input) input.setAttribute('aria-expanded', 'false');

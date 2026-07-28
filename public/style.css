@@ -1169,9 +1169,12 @@ body {
 .header-search-wrapper {
   max-width: 240px;
   flex: 0 0 auto;
-  z-index: 9;
 }
 .header-search-wrapper input { padding-top: 8px; padding-bottom: 8px; font-size: 0.85rem; }
+/* Only outrank the mobile nav drawer (z-index 7) while the dropdown is
+   actually open — a permanent elevated z-index here made the persistent
+   search box poke through on top of the open drawer at mobile widths. */
+.header-search-wrapper.search-active { z-index: 9; }
 
 @media (max-width: 900px) {
   .header-search-wrapper { max-width: none; width: 100%; order: 10; }

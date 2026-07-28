@@ -4,8 +4,7 @@ SoundTracks is a fully static, backend-free web app that connects to your Spotif
 
 ## Features
 
-- **Profile Overview**: A one-screen dashboard led by a big cover-art hero — large album art on the left with track info, a progress bar, and previous/play-pause/next controls (requires Spotify Premium) directly underneath — alongside your upcoming queue, recently played, and current favourites (last 30 days, Spotify's closest available range) stacked on the right.
-- **Now Playing**: Live, polled in the background — the Overview hero above and a compact echo in the sidebar (cover, track/artist, and the same controls, just above your profile) both update in real time. On a collapsed sidebar the mini player's transport controls stay put as a vertical icon strip rather than disappearing.
+- **Now Playing**: A one-screen dashboard led by a big cover-art hero — large album art on the left with track info, a progress bar, and previous/play-pause/next controls (requires Spotify Premium) directly underneath — alongside your upcoming queue, recently played, and current favourites (last 30 days, Spotify's closest available range) stacked on the right. Live, polled in the background — the hero above and a compact echo in the sidebar (cover, track/artist, and the same controls, just above your profile) both update in real time. On a collapsed sidebar the mini player's transport controls stay put as a vertical icon strip rather than disappearing.
 - **Top Songs**: View your top 50 songs across three timeframes (4 weeks, 6 months, and all-time), in grid or list view.
 - **Top Artists**: View your top 50 artists with rankings, genres, follower counts, and portraits, in grid or list view.
 - **Recently Played**: Shows your last 50 played tracks with relative time calculations and duration details.
