@@ -5,6 +5,20 @@ let currentView = 'grid'; // grid, list
 let artistFilter = ''; // Filter string for top artists grid
 let trackFilter = ''; // Filter string for top tracks grid
 
+// Card-level timeframe filters (independent per analysis card)
+const cardRanges = {
+  'genres': 'medium_term',
+  'listening-profile': 'medium_term',
+  'track-popularity': 'medium_term',
+  'artist-popularity': 'medium_term',
+  'duration': 'medium_term',
+  'contributing': 'medium_term',
+  'track-quadrant': 'medium_term',
+  'artist-quadrant': 'medium_term',
+  'duration-quadrant': 'medium_term',
+  'followers-quadrant': 'medium_term'
+};
+
 // Audio preview player state
 let activeAudio = null;
 let activePlayButton = null;
@@ -14,28 +28,45 @@ let appData = {
   profile: null,
   topTracks: {}, // Keyed by range
   topArtists: {}, // Keyed by range
-  recentlyPlayed: null
+  recentlyPlayed: null,
+  queue: [] // Latest fetched "up next" queue, for Overview's teaser
 };
 
+// Now Playing polling state
+const NOW_PLAYING_POLL_MS = 5000;
+const NOW_PLAYING_TICK_MS = 500;
+let nowPlayingPollTimer = null;
+let nowPlayingTickTimer = null;
+let nowPlayingState = {
+  trackId: null,
+  isPlaying: false,
+  progressMs: 0,
+  durationMs: 0,
+  lastSyncedAt: 0,
+  contextUri: null,
+  contextName: null,
+  shuffleState: false
+};
+let nowPlayingPollCount = 0;
+let miniPlayerControlPending = false;
+
 // --- Spotify API Helper ---
-async function spotifyFetch(urlPath) {
-  const response = await fetch(urlPath);
-
-  if (response.status === 401) {
-    showLoginScreen();
-    throw new Error('Unauthorized');
+// apiPath is a path under https://api.spotify.com/v1 (e.g. '/me/top/tracks?...').
+async function spotifyFetch(apiPath) {
+  try {
+    return await SpotifyAuth.apiFetch(apiPath);
+  } catch (err) {
+    if (err.isUnauthorized) {
+      showLoginScreen();
+    }
+    throw err;
   }
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API error: ${response.status} - ${errorText}`);
-  }
-
-  return response;
 }
 
 function logout() {
-  window.location.href = '/logout';
+  stopNowPlayingPolling();
+  SpotifyAuth.disconnectSpotify();
+  showLoginScreen();
 }
 
 // UK English formatting helpers
@@ -88,25 +119,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Check if user is authenticated
 async function checkAuthStatus() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const error = urlParams.get('error');
-  
-  if (error) {
-    showError(error);
-    showLoginScreen();
-    hideLoading();
-    return;
-  }
-
   try {
-    const response = await fetch('/api/auth-status');
-    if (response.ok) {
-      const data = await response.json();
-      if (data.authenticated) {
+    // If this page load is Spotify redirecting back with ?code=/?error=, finish
+    // the PKCE exchange first — this also scrubs those params from the URL.
+    const redirectResult = await SpotifyAuth.handleRedirect();
+
+    if (redirectResult.handled) {
+      if (redirectResult.success) {
         await loadDashboard();
       } else {
+        showError(redirectResult.error);
         showLoginScreen();
       }
+      return;
+    }
+
+    if (SpotifyAuth.isConnected()) {
+      await loadDashboard();
     } else {
       showLoginScreen();
     }
@@ -133,6 +162,34 @@ function hideLoading() {
   document.getElementById('loading-container').classList.add('hidden');
 }
 
+// Collapsible sidebar (desktop) — icon-only rail, persisted across sessions
+function applySidebarCollapsedState(collapsed) {
+  const sidebar = document.getElementById('sidebar');
+  const dashboardLayout = document.getElementById('app-container');
+  if (!sidebar || !dashboardLayout) return;
+
+  sidebar.classList.toggle('collapsed', collapsed);
+  dashboardLayout.classList.toggle('sidebar-collapsed', collapsed);
+  sidebar.setAttribute('aria-expanded', String(!collapsed));
+}
+
+// Mobile nav drawer (hamburger menu, phones & tablets in portrait)
+function openMobileMenu() {
+  document.getElementById('mobile-nav-drawer').classList.add('open');
+  document.getElementById('mobile-nav-drawer').setAttribute('aria-hidden', 'false');
+  document.getElementById('mobile-nav-overlay').classList.add('open');
+  const toggleBtn = document.getElementById('btn-mobile-menu');
+  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+}
+
+function closeMobileMenu() {
+  document.getElementById('mobile-nav-drawer').classList.remove('open');
+  document.getElementById('mobile-nav-drawer').setAttribute('aria-hidden', 'true');
+  document.getElementById('mobile-nav-overlay').classList.remove('open');
+  const toggleBtn = document.getElementById('btn-mobile-menu');
+  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+}
+
 function showError(errorType) {
   const banner = document.getElementById('auth-error-msg');
   banner.classList.remove('hidden');
@@ -141,11 +198,15 @@ function showError(errorType) {
   if (errorType === 'access_denied') {
     msg = 'Access was denied. You must approve permissions to use the application.';
   } else if (errorType === 'token_exchange_failed') {
-    msg = 'Failed to exchange token with Spotify. Please check your credentials.';
+    msg = 'Failed to exchange the authorisation code with Spotify. Please try connecting again.';
   } else if (errorType === 'no_code') {
     msg = 'No authorisation code was returned from Spotify.';
+  } else if (errorType === 'state_mismatch') {
+    msg = 'The authorisation response could not be verified. Please try connecting again.';
+  } else if (errorType === 'missing_client_id') {
+    msg = 'No Spotify Client ID is configured. Add one to the spotify-client-id meta tag in index.html.';
   } else if (errorType === 'failed_connection') {
-    msg = 'Unable to connect to the local server. Is it running?';
+    msg = 'Unable to reach Spotify. Check your connection and try again.';
   }
   
   banner.textContent = msg;
@@ -153,12 +214,98 @@ function showError(errorType) {
 
 // Setup Event Listeners
 function setupEventListeners() {
+  const retryBtn = document.getElementById('btn-dashboard-retry');
+  if (retryBtn) retryBtn.addEventListener('click', () => loadDashboard());
+
   // Navigation tabs
   document.querySelectorAll('.nav-item').forEach(button => {
     button.addEventListener('click', () => {
       const tabId = button.getAttribute('data-tab');
       switchTab(tabId);
+      if (tabId === 'search') focusSearchInput();
+      if (button.closest('#mobile-nav-drawer')) closeMobileMenu();
     });
+  });
+
+  // Mobile nav drawer (hamburger menu, phones & tablets in portrait)
+  const menuToggleBtn = document.getElementById('btn-mobile-menu');
+  const menuCloseBtn = document.getElementById('btn-mobile-menu-close');
+  const menuOverlay = document.getElementById('mobile-nav-overlay');
+  if (menuToggleBtn) menuToggleBtn.addEventListener('click', openMobileMenu);
+  if (menuCloseBtn) menuCloseBtn.addEventListener('click', closeMobileMenu);
+  if (menuOverlay) menuOverlay.addEventListener('click', closeMobileMenu);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeMobileMenu();
+  });
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 800) closeMobileMenu();
+  });
+
+  // Re-fit the Overview teasers whenever the viewport (and so the hero's
+  // rendered size) changes — debounced since resize fires continuously
+  // while dragging a window edge.
+  let overviewFitResizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(overviewFitResizeTimer);
+    overviewFitResizeTimer = setTimeout(fitOverviewSideLists, 150);
+  });
+
+  // Collapsible sidebar (desktop) — click any empty area of the rail itself
+  // (not a nav item, the user badge, or logout) to toggle collapsed state.
+  applySidebarCollapsedState(localStorage.getItem('sidebar-collapsed') === 'true');
+  const sidebarEl = document.getElementById('sidebar');
+  if (sidebarEl) {
+    sidebarEl.addEventListener('click', (e) => {
+      if (e.target.closest('.nav-item, .btn-logout, .user-badge, .sidebar-mini-player')) return;
+      const collapsed = !sidebarEl.classList.contains('collapsed');
+      applySidebarCollapsedState(collapsed);
+      localStorage.setItem('sidebar-collapsed', String(collapsed));
+      // Wait for the collapse transition (0.25s) to finish before
+      // re-measuring the hero's now-different width.
+      setTimeout(fitOverviewSideLists, 300);
+    });
+  }
+
+  // Playback transport controls — sidebar mini player and the Overview Now
+  // Playing panel each get their own set of prev/play/next/shuffle buttons,
+  // wired up identically (stopPropagation so the sidebar's set doesn't also
+  // trigger the click-anywhere sidebar collapse toggle above).
+  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next, shuffle }) => {
+    const prevBtn = document.getElementById(prev);
+    const playBtn = document.getElementById(play);
+    const nextBtn = document.getElementById(next);
+    const shuffleBtn = document.getElementById(shuffle);
+
+    if (prevBtn) {
+      prevBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        playbackControl('POST', '/me/player/previous');
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        playbackControl('POST', '/me/player/next');
+      });
+    }
+    if (playBtn) {
+      playBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const wasPlaying = nowPlayingState.isPlaying;
+        // Optimistic flip so the button feels instant instead of waiting on the network.
+        nowPlayingState.isPlaying = !wasPlaying;
+        updateAllPlayIcons();
+        const badge = document.getElementById('now-playing-status-badge');
+        if (badge) badge.classList.toggle('hidden', !nowPlayingState.isPlaying);
+        playbackControl('PUT', wasPlaying ? '/me/player/pause' : '/me/player/play');
+      });
+    }
+    if (shuffleBtn) {
+      shuffleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleShuffle();
+      });
+    }
   });
 
   // Time Range filters
@@ -185,13 +332,34 @@ function setupEventListeners() {
       document.querySelectorAll('.view-toggle-btn').forEach(btn => btn.classList.remove('active'));
       button.classList.add('active');
       currentView = button.getAttribute('data-view');
-      
-      // Re-render active tab if it's tracks or recent
+
+      // Re-render active tab if it's tracks, artists, or recent
       if (currentTab === 'tracks') {
         renderTopTracks(appData.topTracks[currentRange]);
+      } else if (currentTab === 'artists') {
+        renderTopArtists(appData.topArtists[currentRange] || appData.topArtists['medium_term']);
       } else if (currentTab === 'recent') {
         renderRecentlyPlayed(appData.recentlyPlayed);
       }
+    });
+  });
+
+  // Card-level timeframe filters (Analysis cards with individual ranges)
+  document.querySelectorAll('.card-time-filter-btn').forEach(button => {
+    button.addEventListener('click', async () => {
+      const cardId = button.getAttribute('data-card');
+      const range = button.getAttribute('data-range');
+
+      // Update the filter state for this card
+      cardRanges[cardId] = range;
+
+      // Update active state for this card's buttons
+      const cardButtons = document.querySelectorAll(`.card-time-filter-btn[data-card="${cardId}"]`);
+      cardButtons.forEach(btn => btn.classList.remove('active'));
+      button.classList.add('active');
+
+      // Fetch data if needed and re-render the specific card
+      await renderAnalysisCardByName(cardId, range);
     });
   });
 
@@ -247,6 +415,9 @@ function setupEventListeners() {
     });
   }
 
+  // Global search tab (search input + type filter chips)
+  initSearchTab();
+
   // Clear track filter badge button
   const clearTrackFilterBtn = document.getElementById('btn-clear-track-filter');
   if (clearTrackFilterBtn) {
@@ -258,12 +429,25 @@ function setupEventListeners() {
     });
   }
 
-  // Logout event listener
-  const logoutBtn = document.getElementById('btn-logout');
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', (e) => {
+  // Logout event listeners (desktop sidebar + mobile top bar)
+  document.querySelectorAll('.btn-logout').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
       e.preventDefault();
       logout();
+    });
+  });
+
+  // Login event listener — kicks off the client-side PKCE redirect to Spotify
+  const loginBtn = document.getElementById('btn-login');
+  if (loginBtn) {
+    loginBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        await SpotifyAuth.connectSpotify();
+      } catch (err) {
+        console.error('Failed to start Spotify login:', err);
+        showError(err.message === 'missing_client_id' ? 'missing_client_id' : 'failed_connection');
+      }
     });
   }
 }
@@ -271,6 +455,7 @@ function setupEventListeners() {
 // Switch tabs logic
 function switchTab(tabId) {
   currentTab = tabId;
+  closeHeaderSearchDropdown();
 
   // Stop any playing audio preview on tab switch to prevent ghost audio
   if (activeAudio) {
@@ -289,17 +474,24 @@ function switchTab(tabId) {
     }
   });
 
+  // Hide the persistent header search on the Search tab itself — it already
+  // has its own, more prominent search box.
+  const headerSearchWrapper = document.getElementById('header-search-wrapper');
+  if (headerSearchWrapper) headerSearchWrapper.classList.toggle('hidden', tabId === 'search');
+
   // Show/Hide time range filter and view toggle controls
   const timeFilter = document.getElementById('time-filter-container');
   const viewToggle = document.getElementById('view-toggle-container');
-  
-  if (tabId === 'tracks' || tabId === 'artists' || tabId === 'analysis') {
+
+  // Analysis cards each have their own timeframe filter now, so the shared
+  // header time filter is only relevant for tracks/artists.
+  if (tabId === 'tracks' || tabId === 'artists') {
     timeFilter.classList.remove('hidden');
   } else {
     timeFilter.classList.add('hidden');
   }
 
-  if (tabId === 'tracks' || tabId === 'recent') {
+  if (tabId === 'tracks' || tabId === 'artists' || tabId === 'recent') {
     viewToggle.classList.remove('hidden');
     // Ensure the toggle buttons show correct active view status
     document.querySelectorAll('.view-toggle-btn').forEach(btn => {
@@ -315,7 +507,8 @@ function switchTab(tabId) {
 
   // Update header title
   const titles = {
-    overview: 'overview',
+    overview: 'now-playing',
+    search: 'search',
     tracks: 'top-tracks',
     artists: 'top-artists',
     analysis: 'analysis',
@@ -332,6 +525,8 @@ function switchTab(tabId) {
   // Load tab data
   if (tabId === 'overview') {
     renderOverview();
+  } else if (tabId === 'search') {
+    renderLocalSearchResults();
   } else if (tabId === 'tracks') {
     loadTopTracks();
   } else if (tabId === 'artists') {
@@ -346,14 +541,15 @@ function switchTab(tabId) {
 // Load and cache all initial dashboard data
 async function loadDashboard() {
   showDashboardScreen();
-  
+  hideDashboardError();
+
   try {
-    // Fetch profile and recently played immediately
+    // Fetch profile, recently played, and default ranges for initial display
     const [profileRes, recentRes, tracksRes, artistsRes] = await Promise.all([
-      spotifyFetch('/api/profile'),
-      spotifyFetch('/api/recently-played?limit=50'),
-      spotifyFetch(`/api/top/tracks?time_range=medium_term&limit=50`),
-      spotifyFetch(`/api/top/artists?time_range=medium_term&limit=50`)
+      spotifyFetch('/me'),
+      spotifyFetch('/me/player/recently-played?limit=50'),
+      spotifyFetch(`/me/top/tracks?time_range=medium_term&limit=50`),
+      spotifyFetch(`/me/top/artists?time_range=medium_term&limit=50`)
     ]);
 
     appData.profile = await profileRes.json();
@@ -371,159 +567,500 @@ async function loadDashboard() {
 
     // Render overview tab first
     renderOverview();
+    startNowPlayingPolling();
 
   } catch (err) {
     console.error('Error fetching dashboard data:', err);
-    logout();
+    // An expired/invalid refresh token is a genuine "you need to log back
+    // in" — spotifyFetch already cleared tokens and swapped to the login
+    // screen for that case. Anything else (a rate limit, a network blip) is
+    // transient and shouldn't cost the user their session — show a retry
+    // instead of logging them out over it.
+    if (!err.isUnauthorized) {
+      showDashboardError('Failed to load your dashboard data. This is usually temporary — try again.');
+    }
   }
+}
+
+function showDashboardError(message) {
+  const banner = document.getElementById('dashboard-error-banner');
+  const text = document.getElementById('dashboard-error-text');
+  if (text) text.textContent = message;
+  if (banner) banner.classList.remove('hidden');
+}
+
+function hideDashboardError() {
+  const banner = document.getElementById('dashboard-error-banner');
+  if (banner) banner.classList.add('hidden');
 }
 
 // RENDER OVERVIEW TAB
 function renderOverview() {
   if (!appData.profile || !appData.recentlyPlayed) return;
-
-  const profile = appData.profile;
-  const recent = appData.recentlyPlayed;
-  const topTracks = appData.topTracks['medium_term'];
-  const topArtists = appData.topArtists['medium_term'];
-
-  // 1. Calculate Playtime (Last 50 songs)
-  let totalPlaytimeMs = 0;
-  if (recent && recent.items) {
-    recent.items.forEach(item => {
-      totalPlaytimeMs += item.track.duration_ms;
-    });
-  }
-  const totalPlaytimeMins = Math.round(totalPlaytimeMs / 60000);
-  document.getElementById('stat-recent-playtime').textContent = `${totalPlaytimeMins} mins`;
-
-  // 2. Favorite Track / Artist labels
-  if (topTracks && topTracks.items && topTracks.items.length > 0) {
-    document.getElementById('stat-favorite-track').textContent = topTracks.items[0].name;
-  } else {
-    document.getElementById('stat-favorite-track').textContent = 'None';
-  }
-
-  if (topArtists && topArtists.items && topArtists.items.length > 0) {
-    document.getElementById('stat-favorite-artist').textContent = topArtists.items[0].name;
-  } else {
-    document.getElementById('stat-favorite-artist').textContent = 'None';
-  }
-
-  // 3. Profile Card Details
-  const avatarUrl = profile.images && profile.images.length > 0 
-    ? profile.images[0].url 
-    : 'https://via.placeholder.com/150';
-  document.getElementById('profile-img-large').src = avatarUrl;
-  document.getElementById('profile-name-large').textContent = profile.display_name;
-  document.getElementById('profile-followers').textContent = `${profile.followers.total.toLocaleString('en-GB')} followers`;
-  document.getElementById('profile-country').textContent = profile.country;
-  document.getElementById('profile-product').textContent = profile.product;
-
-  // 4. Recently Played Teaser (Limit to 5)
-  const recentList = document.getElementById('overview-recent-list');
-  recentList.innerHTML = '';
-  if (recent && recent.items) {
-    recent.items.slice(0, 5).forEach(item => {
-      const track = item.track;
-      const cover = track.album.images && track.album.images.length > 0 
-        ? track.album.images[0].url 
-        : 'https://via.placeholder.com/44';
-      const artistsName = track.artists.map(a => a.name).join(', ');
-      
-      const div = document.createElement('div');
-      div.className = 'mini-track-item';
-      div.innerHTML = `
-        <img class="mini-track-cover" src="${cover}" alt="${track.name}">
-        <div class="mini-track-info">
-          <span class="mini-track-title">${track.name}</span>
-          <span class="mini-track-artist">${artistsName}</span>
-        </div>
-        <div class="mini-track-meta">
-          <span>${formatRelativeTime(item.played_at)}</span>
-        </div>
-      `;
-      recentList.appendChild(div);
-    });
-  }
-
-  // 5. Current Favorites Teaser (Limit to 5)
-  const tracksList = document.getElementById('overview-tracks-list');
-  tracksList.innerHTML = '';
-  if (topTracks && topTracks.items) {
-    topTracks.items.slice(0, 5).forEach(track => {
-      const cover = track.album.images && track.album.images.length > 0 
-        ? track.album.images[0].url 
-        : 'https://via.placeholder.com/44';
-      const artistsName = track.artists.map(a => a.name).join(', ');
-      
-      const div = document.createElement('div');
-      div.className = 'mini-track-item';
-      div.innerHTML = `
-        <img class="mini-track-cover" src="${cover}" alt="${track.name}">
-        <div class="mini-track-info">
-          <span class="mini-track-title">${track.name}</span>
-          <span class="mini-track-artist">${artistsName}</span>
-        </div>
-        <div class="mini-track-meta">
-          <span>${formatDuration(track.duration_ms)}</span>
-        </div>
-      `;
-      tracksList.appendChild(div);
-    });
-  }
-
-  // 6. Genres summary teaser
-  renderMiniGenres(topArtists);
+  fitOverviewSideLists();
 }
 
-// Render Mini Genres List on Overview
-function renderMiniGenres(topArtists) {
-  const container = document.getElementById('overview-genres-list');
-  container.innerHTML = '';
+// Builds one mini-track-item row shared by the Up Next and Recently Played
+// teasers; metaHtml is the trailing bit (relative time, or nothing).
+function buildMiniTrackItem(track, metaHtml) {
+  const cover = track.album && track.album.images && track.album.images.length > 0
+    ? track.album.images[0].url
+    : 'https://via.placeholder.com/44';
+  const artistsName = (track.artists || []).map(a => a.name).join(', ');
 
-  if (!topArtists || !topArtists.items || topArtists.items.length === 0) {
-    container.innerHTML = '<div class="loading-inline">No genre data available.</div>';
-    return;
-  }
+  const div = document.createElement('div');
+  div.className = 'mini-track-item';
+  div.innerHTML = `
+    <img class="mini-track-cover" src="${cover}" alt="${track.name}">
+    <div class="mini-track-info">
+      <span class="mini-track-title">${track.name}</span>
+      <span class="mini-track-artist">${artistsName}</span>
+    </div>
+    ${metaHtml || ''}
+  `;
+  return div;
+}
 
-  const genreCounts = {};
-  topArtists.items.forEach(artist => {
-    artist.genres.forEach(genre => {
-      genreCounts[genre] = (genreCounts[genre] || 0) + 1;
-    });
+function renderRecentListCount(count) {
+  const list = document.getElementById('overview-recent-list');
+  if (!list) return;
+  const recent = appData.recentlyPlayed;
+  if (!recent || !recent.items) return;
+
+  list.innerHTML = '';
+  recent.items.slice(0, count).forEach(item => {
+    const metaHtml = `<div class="mini-track-meta"><span>${formatRelativeTime(item.played_at)}</span></div>`;
+    list.appendChild(buildMiniTrackItem(item.track, metaHtml));
   });
+}
 
-  const sortedGenres = Object.entries(genreCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3); // Top 3
+function renderQueueListCount(count) {
+  const list = document.getElementById('overview-queue-list');
+  if (!list) return;
 
-  const totalHits = Object.values(genreCounts).reduce((a, b) => a + b, 0);
+  const upcoming = appData.queue.slice(0, count);
+  if (upcoming.length === 0) {
+    list.innerHTML = '<div class="loading-inline">Nothing queued right now.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  upcoming.forEach((track) => list.appendChild(buildMiniTrackItem(track)));
+}
 
-  if (sortedGenres.length === 0) {
-    container.innerHTML = '<div class="loading-inline">Not enough artist data to map genres.</div>';
+// Fills Up Next / Recently Played with as many real rows as fit alongside
+// the hero's actual rendered height, rather than a fixed count that's
+// either too sparse on a big screen or overflows on a smaller one. Grows
+// each list one row at a time, alternating, measuring the real DOM after
+// each addition, and backs off the moment adding a row would make the
+// side column taller than the hero column.
+const OVERVIEW_LIST_MAX_ITEMS = 12; // sane ceiling regardless of available space
+function fitOverviewSideLists() {
+  const artCol = document.querySelector('.now-playing-art-col');
+  const sideCol = document.querySelector('.now-playing-side-col');
+  if (!artCol || !sideCol) return;
+  // offsetParent is null while the Overview tab-pane isn't the active one
+  // (display:none ancestor) — bail rather than measure a zero-height hero
+  // and shrink both lists down to nothing.
+  if (!artCol.offsetParent) return;
+
+  // Below this breakpoint the hero stacks into a single column (see
+  // style.css), so there's no shared row of height to fit into — just
+  // show a small, fixed number and let the page scroll normally.
+  if (window.matchMedia('(max-width: 900px)').matches) {
+    renderQueueListCount(3);
+    renderRecentListCount(3);
     return;
   }
 
-  sortedGenres.forEach(([genre, count]) => {
-    const percentage = Math.round((count / totalHits) * 100);
-    const item = document.createElement('div');
-    item.className = 'genre-bar-container interactive-genre-bar';
-    item.title = `Click to filter artists by ${genre}`;
-    item.innerHTML = `
-      <div class="genre-bar-info">
-        <span class="genre-bar-name">${genre}</span>
-        <span class="genre-bar-percentage">${percentage}%</span>
-      </div>
-      <div class="genre-bar-wrapper">
-        <div class="genre-bar-fill" style="width: ${percentage}%"></div>
+  const target = artCol.getBoundingClientRect().height;
+  const queueLen = appData.queue.length;
+  const recentLen = (appData.recentlyPlayed && appData.recentlyPlayed.items || []).length;
+
+  let queueCount = Math.min(1, queueLen);
+  let recentCount = Math.min(1, recentLen);
+  renderQueueListCount(queueCount);
+  renderRecentListCount(recentCount);
+
+  let grew = true;
+  while (grew && queueCount + recentCount < OVERVIEW_LIST_MAX_ITEMS * 2) {
+    grew = false;
+
+    if (queueCount < queueLen && queueCount < OVERVIEW_LIST_MAX_ITEMS) {
+      renderQueueListCount(queueCount + 1);
+      if (sideCol.getBoundingClientRect().height <= target) {
+        queueCount++;
+        grew = true;
+      } else {
+        renderQueueListCount(queueCount);
+      }
+    }
+
+    if (recentCount < recentLen && recentCount < OVERVIEW_LIST_MAX_ITEMS) {
+      renderRecentListCount(recentCount + 1);
+      if (sideCol.getBoundingClientRect().height <= target) {
+        recentCount++;
+        grew = true;
+      } else {
+        renderRecentListCount(recentCount);
+      }
+    }
+  }
+}
+
+// --- NOW PLAYING ---
+// Polls /me/player (rather than /me/player/currently-playing) periodically
+// for the real state — the extra fields cost nothing extra to fetch and
+// /me/player is the only one of the two that reports shuffle_state, which
+// the shuffle toggle needs. Also ticks a local timer between polls so the
+// progress bar advances smoothly without hammering the API every second.
+
+function startNowPlayingPolling() {
+  stopNowPlayingPolling();
+
+  pollNowPlaying();
+  nowPlayingPollTimer = setInterval(pollNowPlaying, NOW_PLAYING_POLL_MS);
+  nowPlayingTickTimer = setInterval(tickNowPlayingProgress, NOW_PLAYING_TICK_MS);
+
+  // Don't burn API calls / battery polling a tab nobody is looking at.
+  document.addEventListener('visibilitychange', handleNowPlayingVisibilityChange);
+}
+
+function stopNowPlayingPolling() {
+  if (nowPlayingPollTimer) clearInterval(nowPlayingPollTimer);
+  if (nowPlayingTickTimer) clearInterval(nowPlayingTickTimer);
+  nowPlayingPollTimer = null;
+  nowPlayingTickTimer = null;
+  document.removeEventListener('visibilitychange', handleNowPlayingVisibilityChange);
+}
+
+function handleNowPlayingVisibilityChange() {
+  if (document.hidden) {
+    if (nowPlayingPollTimer) clearInterval(nowPlayingPollTimer);
+    if (nowPlayingTickTimer) clearInterval(nowPlayingTickTimer);
+    nowPlayingPollTimer = null;
+    nowPlayingTickTimer = null;
+  } else if (!nowPlayingPollTimer) {
+    pollNowPlaying();
+    nowPlayingPollTimer = setInterval(pollNowPlaying, NOW_PLAYING_POLL_MS);
+    nowPlayingTickTimer = setInterval(tickNowPlayingProgress, NOW_PLAYING_TICK_MS);
+  }
+}
+
+async function pollNowPlaying() {
+  let response;
+  try {
+    response = await spotifyFetch('/me/player');
+  } catch (err) {
+    if (err.status === 403) {
+      // Session was authorised before user-read-playback-state existed —
+      // needs a fresh login to pick up the new scope.
+      stopNowPlayingPolling();
+      renderNowPlayingNeedsReconnect();
+      return;
+    }
+    // spotifyFetch already handles 401 (shows login screen); anything else
+    // (network blip, rate limit) just skips this poll — we'll try again shortly.
+    return;
+  }
+
+  if (response.status === 204) {
+    renderNowPlayingIdle();
+    return;
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch (err) {
+    return;
+  }
+
+  if (!data || !data.item) {
+    renderNowPlayingIdle();
+    return;
+  }
+
+  await renderNowPlayingActive(data);
+}
+
+function renderNowPlayingIdle() {
+  nowPlayingState = { trackId: null, isPlaying: false, progressMs: 0, durationMs: 0, lastSyncedAt: 0, contextUri: null, contextName: null, shuffleState: false };
+  document.getElementById('now-playing-status-badge').classList.add('hidden');
+  document.getElementById('now-playing-content').innerHTML =
+    '<div class="loading-inline">Nothing playing right now. Start a track on Spotify to see it here.</div>';
+  hideSidebarMiniPlayer();
+}
+
+function renderNowPlayingNeedsReconnect() {
+  document.getElementById('now-playing-status-badge').classList.add('hidden');
+  document.getElementById('now-playing-content').innerHTML =
+    '<div class="loading-inline">Reconnect your Spotify account to enable Now Playing (needs one extra permission).</div>';
+  hideSidebarMiniPlayer();
+}
+
+async function renderNowPlayingActive(data) {
+  const track = data.item;
+  const isNewTrack = track.id !== nowPlayingState.trackId;
+  const contextUri = data.context ? data.context.uri : null;
+  const isNewContext = contextUri !== nowPlayingState.contextUri;
+
+  nowPlayingState.trackId = track.id;
+  nowPlayingState.isPlaying = Boolean(data.is_playing);
+  nowPlayingState.progressMs = data.progress_ms || 0;
+  nowPlayingState.durationMs = track.duration_ms || 0;
+  nowPlayingState.lastSyncedAt = Date.now();
+  nowPlayingState.contextUri = contextUri;
+  nowPlayingState.shuffleState = Boolean(data.shuffle_state);
+
+  if (isNewContext) {
+    nowPlayingState.contextName = null; // cleared until (if) the fetch below resolves
+    if (data.context) {
+      fetchNowPlayingContextName(data.context, contextUri);
+    }
+  }
+
+  const badge = document.getElementById('now-playing-status-badge');
+  badge.classList.toggle('hidden', !nowPlayingState.isPlaying);
+
+  const cover = track.album.images && track.album.images.length > 0
+    ? track.album.images[0].url
+    : 'https://via.placeholder.com/64';
+  const artistsName = track.artists.map((a) => a.name).join(', ');
+
+  if (isNewTrack || !document.getElementById('now-playing-track')) {
+    const spotifyUrl = track.external_urls.spotify;
+
+    document.getElementById('now-playing-content').innerHTML = `
+      <div class="now-playing-body">
+        <div class="now-playing-info">
+          <a id="now-playing-track" class="now-playing-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="${track.name}">${track.name}</a>
+          <span class="now-playing-artist">${artistsName}</span>
+          <span id="now-playing-context" class="now-playing-context">${nowPlayingState.contextName ? `Playing from: ${nowPlayingState.contextName}` : ''}</span>
+          <div class="now-playing-progress-wrapper">
+            <div class="now-playing-progress-bar"><div id="now-playing-progress-fill" class="now-playing-progress-fill"></div></div>
+            <div class="now-playing-times">
+              <span id="now-playing-elapsed">0:00</span>
+              <span id="now-playing-duration">${formatDuration(nowPlayingState.durationMs)}</span>
+            </div>
+          </div>
+        </div>
       </div>
     `;
-    item.addEventListener('click', () => {
-      applyGenreFilterToArtists(genre);
-    });
-    container.appendChild(item);
+  }
+
+  renderNowPlayingArtTile(cover, track.name);
+  renderSidebarMiniPlayer(track, cover, artistsName);
+  showNowPlayingControls();
+  updateAllPlayIcons();
+  updateAllShuffleButtons();
+  nowPlayingPollCount++;
+  refreshQueue(isNewTrack);
+
+  updateNowPlayingProgressUI();
+}
+
+// --- SIDEBAR MINI PLAYER ---
+// Compact echo of the Overview Now Playing panel, shown above the user's
+// name in the sidebar footer: cover, track/artist, and skip controls.
+
+function renderSidebarMiniPlayer(track, cover, artistsName) {
+  const panel = document.getElementById('sidebar-mini-player');
+  if (!panel) return;
+  panel.classList.remove('hidden');
+
+  const coverEl = document.getElementById('mini-player-cover');
+  const trackEl = document.getElementById('mini-player-track');
+  const artistEl = document.getElementById('mini-player-artist');
+  if (coverEl) { coverEl.src = cover; coverEl.alt = track.name; }
+  if (trackEl) { trackEl.textContent = track.name; trackEl.title = track.name; }
+  if (artistEl) { artistEl.textContent = artistsName; artistEl.title = artistsName; }
+}
+
+function hideSidebarMiniPlayer() {
+  const panel = document.getElementById('sidebar-mini-player');
+  if (panel) panel.classList.add('hidden');
+  hideNowPlayingControls();
+  hideNowPlayingArtTile();
+  nowPlayingPollCount = 0;
+  appData.queue = [];
+  fitOverviewSideLists();
+}
+
+// Big cover-art tile on Overview, in the teaser row (replaces the old Top
+// Genres slot) — shows the currently-playing track's artwork large, with a
+// placeholder icon when nothing's playing.
+function renderNowPlayingArtTile(cover, trackName) {
+  const img = document.getElementById('now-playing-cover-large');
+  const placeholder = document.getElementById('now-playing-art-placeholder');
+  if (!img || !placeholder) return;
+  img.src = cover;
+  img.alt = trackName;
+  img.classList.remove('hidden');
+  placeholder.classList.add('hidden');
+}
+
+function hideNowPlayingArtTile() {
+  const img = document.getElementById('now-playing-cover-large');
+  const placeholder = document.getElementById('now-playing-art-placeholder');
+  if (img) { img.classList.add('hidden'); img.src = ''; }
+  if (placeholder) placeholder.classList.remove('hidden');
+}
+
+function showNowPlayingControls() {
+  const controls = document.getElementById('now-playing-controls');
+  if (controls) controls.classList.remove('hidden');
+}
+
+function hideNowPlayingControls() {
+  const controls = document.getElementById('now-playing-controls');
+  if (controls) controls.classList.add('hidden');
+}
+
+function updateAllPlayIcons() {
+  ['mini-player-play-icon', 'now-playing-play-icon'].forEach((id) => {
+    const icon = document.getElementById(id);
+    if (!icon) return;
+    icon.innerHTML = nowPlayingState.isPlaying
+      ? '<path d="M6 5h4v14H6zm8 0h4v14h-4z"></path>'
+      : '<path d="M8 5v14l11-7z"></path>';
   });
+}
+
+function updateAllShuffleButtons() {
+  ['mini-player-shuffle', 'now-playing-shuffle'].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.classList.toggle('active', nowPlayingState.shuffleState);
+    btn.setAttribute('aria-pressed', String(nowPlayingState.shuffleState));
+  });
+}
+
+const QUEUE_REFRESH_EVERY_N_POLLS = 4; // ~20s at the 5s poll interval
+
+async function refreshQueue(force) {
+  if (!force && nowPlayingPollCount % QUEUE_REFRESH_EVERY_N_POLLS !== 0) return;
+
+  try {
+    const response = await spotifyFetch('/me/player/queue');
+    const data = await response.json();
+    appData.queue = data.queue || [];
+    fitOverviewSideLists();
+  } catch (err) {
+    // Needs user-read-playback-state (older sessions won't have it yet) —
+    // just leave the queue preview empty rather than erroring.
+  }
+}
+
+// Playback transport controls — shared between the sidebar mini player and
+// the Overview Now Playing panel, which each have their own button/error IDs.
+const TRANSPORT_BUTTON_SETS = [
+  { prev: 'mini-player-prev', play: 'mini-player-play', next: 'mini-player-next', shuffle: 'mini-player-shuffle', error: 'mini-player-error' },
+  { prev: 'now-playing-prev', play: 'now-playing-play', next: 'now-playing-next', shuffle: 'now-playing-shuffle', error: 'now-playing-controls-error' },
+];
+
+async function playbackControl(method, path) {
+  if (miniPlayerControlPending) return;
+  miniPlayerControlPending = true;
+  setAllControlsDisabled(true);
+  hideAllControlErrors();
+
+  try {
+    await SpotifyAuth.apiRequest(path, { method });
+    // Optimistic UI updates instantly (see button handlers); this just
+    // resyncs the exact state once Spotify has actually applied the change.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await pollNowPlaying();
+  } catch (err) {
+    if (err.status === 403) {
+      showAllControlErrors('Playback control needs Spotify Premium.');
+    } else if (err.status === 404) {
+      showAllControlErrors('No active Spotify device found.');
+    } else {
+      showAllControlErrors('Playback control failed.');
+    }
+  } finally {
+    miniPlayerControlPending = false;
+    setAllControlsDisabled(false);
+  }
+}
+
+function setAllControlsDisabled(disabled) {
+  TRANSPORT_BUTTON_SETS.forEach(({ prev, play, next, shuffle }) => {
+    [prev, play, next, shuffle].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = disabled;
+    });
+  });
+}
+
+async function toggleShuffle() {
+  const target = !nowPlayingState.shuffleState;
+  nowPlayingState.shuffleState = target; // optimistic
+  updateAllShuffleButtons();
+  await playbackControl('PUT', `/me/player/shuffle?state=${target}`);
+}
+
+let controlErrorTimer = null;
+function showAllControlErrors(message) {
+  TRANSPORT_BUTTON_SETS.forEach(({ error }) => {
+    const el = document.getElementById(error);
+    if (!el) return;
+    el.textContent = message;
+    el.classList.remove('hidden');
+  });
+  if (controlErrorTimer) clearTimeout(controlErrorTimer);
+  controlErrorTimer = setTimeout(hideAllControlErrors, 4000);
+}
+
+function hideAllControlErrors() {
+  TRANSPORT_BUTTON_SETS.forEach(({ error }) => {
+    const el = document.getElementById(error);
+    if (el) el.classList.add('hidden');
+  });
+  if (controlErrorTimer) { clearTimeout(controlErrorTimer); controlErrorTimer = null; }
+}
+
+async function fetchNowPlayingContextName(context, contextUri) {
+  if (!context.href) return;
+  const path = context.href.replace('https://api.spotify.com/v1', '');
+
+  try {
+    const res = await spotifyFetch(path);
+    const data = await res.json();
+    // Only apply if we're still on the same context (avoids a slow response
+    // clobbering a newer track's context after a fast skip).
+    if (nowPlayingState.contextUri === contextUri && data.name) {
+      nowPlayingState.contextName = data.name;
+      const contextEl = document.getElementById('now-playing-context');
+      if (contextEl) contextEl.textContent = `Playing from: ${data.name}`;
+    }
+  } catch (err) {
+    // Missing playlist-read-private scope on an older session, a since-deleted
+    // playlist, etc. — just leave the context line blank rather than erroring.
+  }
+}
+
+function tickNowPlayingProgress() {
+  if (!nowPlayingState.isPlaying || !nowPlayingState.trackId) return;
+  updateNowPlayingProgressUI();
+}
+
+function updateNowPlayingProgressUI() {
+  const fill = document.getElementById('now-playing-progress-fill');
+  const elapsedEl = document.getElementById('now-playing-elapsed');
+  const miniFill = document.getElementById('mini-player-progress-fill');
+  if ((!fill || !elapsedEl) && !miniFill) return;
+
+  let displayedMs = nowPlayingState.progressMs;
+  if (nowPlayingState.isPlaying) {
+    displayedMs += Date.now() - nowPlayingState.lastSyncedAt;
+  }
+  displayedMs = Math.min(displayedMs, nowPlayingState.durationMs);
+
+  const percentage = nowPlayingState.durationMs > 0 ? (displayedMs / nowPlayingState.durationMs) * 100 : 0;
+  if (fill) fill.style.width = `${percentage}%`;
+  if (elapsedEl) elapsedEl.textContent = formatDuration(displayedMs);
+  if (miniFill) miniFill.style.width = `${percentage}%`;
 }
 
 // LOAD TOP TRACKS
@@ -541,7 +1078,7 @@ async function loadTopTracks(forceReload = false) {
   grid.innerHTML = spinnerHtml;
 
   try {
-    const res = await spotifyFetch(`/api/top/tracks?time_range=${currentRange}&limit=50`);
+    const res = await spotifyFetch(`/me/top/tracks?time_range=${currentRange}&limit=50`);
     const data = await res.json();
     appData.topTracks[currentRange] = data;
     renderTopTracks(data);
@@ -620,53 +1157,76 @@ function renderTopTracks(data) {
 // LOAD TOP ARTISTS
 async function loadTopArtists(forceReload = false) {
   const grid = document.getElementById('top-artists-grid');
+  const tbody = document.getElementById('top-artists-table-body');
 
   if (!forceReload && appData.topArtists[currentRange]) {
     renderTopArtists(appData.topArtists[currentRange]);
     return;
   }
 
-  grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;"><div class="spinner" style="height: 30px; width: 30px; margin: 0 auto;"></div></div>';
+  const spinnerHtml = '<div class="loading-inline" style="grid-column: 1/-1;"><div class="spinner" style="height: 30px; width: 30px; margin: 0 auto;"></div></div>';
+  grid.innerHTML = spinnerHtml;
+  tbody.innerHTML = '<tr><td colspan="5" class="loading-inline"><div class="spinner" style="height: 30px; width: 30px; margin: 0 auto;"></div></td></tr>';
 
   try {
-    const res = await spotifyFetch(`/api/top/artists?time_range=${currentRange}&limit=50`);
+    const res = await spotifyFetch(`/me/top/artists?time_range=${currentRange}&limit=50`);
     const data = await res.json();
     appData.topArtists[currentRange] = data;
     renderTopArtists(data);
   } catch (err) {
     console.error('Error fetching top artists:', err);
     grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;">Failed to load artists. Please try again.</div>';
+    tbody.innerHTML = '<tr><td colspan="5" class="loading-inline">Failed to load artists. Please try again.</td></tr>';
   }
 }
 
 function renderTopArtists(data) {
   const grid = document.getElementById('top-artists-grid');
-  grid.innerHTML = '';
+  const tbody = document.getElementById('top-artists-table-body');
+  const listPanel = document.getElementById('top-artists-list-panel');
 
   if (!data || !data.items || data.items.length === 0) {
-    grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;">No artists found for this period. Keep listening!</div>';
+    const emptyMsg = 'No artists found for this period. Keep listening!';
+    grid.innerHTML = `<div class="loading-inline" style="grid-column: 1/-1;">${emptyMsg}</div>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="loading-inline">${emptyMsg}</td></tr>`;
     return;
   }
 
   // Filter items based on active artist filter query
   const query = artistFilter.toLowerCase().trim();
   const filteredItems = query
-    ? data.items.filter(artist => 
-        artist.name.toLowerCase().includes(query) || 
+    ? data.items.filter(artist =>
+        artist.name.toLowerCase().includes(query) ||
         artist.genres.some(genre => genre.toLowerCase().includes(query))
       )
     : data.items;
 
   if (filteredItems.length === 0) {
-    grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;">No artists match your search or filter criteria.</div>';
+    const emptyMsg = 'No artists match your search or filter criteria.';
+    grid.innerHTML = `<div class="loading-inline" style="grid-column: 1/-1;">${emptyMsg}</div>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="loading-inline">${emptyMsg}</td></tr>`;
     return;
   }
 
-  filteredItems.forEach((artist, index) => {
+  if (currentView === 'grid') {
+    grid.classList.remove('hidden');
+    listPanel.classList.add('hidden');
+    renderArtistsGrid(grid, filteredItems, data.items);
+  } else {
+    grid.classList.add('hidden');
+    listPanel.classList.remove('hidden');
+    renderArtistsList(tbody, filteredItems, data.items);
+  }
+}
+
+function renderArtistsGrid(grid, filteredItems, allItems) {
+  grid.innerHTML = '';
+
+  filteredItems.forEach((artist) => {
     // Find index of the original item to keep the rank correct
-    const originalRank = data.items.findIndex(a => a.id === artist.id) + 1;
-    const photo = artist.images && artist.images.length > 0 
-      ? artist.images[0].url 
+    const originalRank = allItems.findIndex(a => a.id === artist.id) + 1;
+    const photo = artist.images && artist.images.length > 0
+      ? artist.images[0].url
       : 'https://via.placeholder.com/150';
     const mainGenre = artist.genres && artist.genres.length > 0 ? artist.genres[0] : 'Various';
     const spotifyUrl = artist.external_urls.spotify;
@@ -702,6 +1262,43 @@ function renderTopArtists(data) {
   });
 }
 
+function renderArtistsList(tbody, filteredItems, allItems) {
+  tbody.innerHTML = '';
+
+  filteredItems.forEach((artist) => {
+    const originalRank = allItems.findIndex(a => a.id === artist.id) + 1;
+    const photo = artist.images && artist.images.length > 0
+      ? artist.images[0].url
+      : 'https://via.placeholder.com/48';
+    const mainGenre = artist.genres && artist.genres.length > 0 ? artist.genres[0] : 'Various';
+    const spotifyUrl = artist.external_urls.spotify;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${originalRank}</td>
+      <td>
+        <div class="track-row-cell">
+          <img class="track-row-cover" src="${photo}" alt="${artist.name}" style="border-radius: 50%;">
+          <div class="track-row-details">
+            <a class="track-row-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer">${artist.name}</a>
+          </div>
+        </div>
+      </td>
+      <td style="text-transform: capitalize;">${mainGenre}</td>
+      <td>${formatFollowers(artist.followers.total)}</td>
+      <td style="text-align: right;">
+        <div class="popularity-info" style="justify-content: flex-end;">
+          <div class="popularity-meter" title="${artist.popularity}% popularity">
+            <div class="popularity-fill" style="width: ${artist.popularity}%"></div>
+          </div>
+          <span class="popularity-val">${artist.popularity}%</span>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
 // Load data for analysis tab and render
 async function loadAnalysisTab(forceReload = false) {
   const needsArtists = forceReload || !appData.topArtists[currentRange];
@@ -718,14 +1315,14 @@ async function loadAnalysisTab(forceReload = false) {
       const promises = [];
       if (needsArtists) {
         promises.push(
-          spotifyFetch(`/api/top/artists?time_range=${currentRange}&limit=50`)
+          spotifyFetch(`/me/top/artists?time_range=${currentRange}&limit=50`)
             .then(res => res.json())
             .then(data => { appData.topArtists[currentRange] = data; })
         );
       }
       if (needsTracks) {
         promises.push(
-          spotifyFetch(`/api/top/tracks?time_range=${currentRange}&limit=50`)
+          spotifyFetch(`/me/top/tracks?time_range=${currentRange}&limit=50`)
             .then(res => res.json())
             .then(data => { appData.topTracks[currentRange] = data; })
         );
@@ -740,6 +1337,191 @@ async function loadAnalysisTab(forceReload = false) {
   }
 
   renderAnalysisTab();
+}
+
+// Update data source label for a specific card
+function updateDataSourceLabel(elementId, type, rangeLabel) {
+  const element = document.getElementById(elementId);
+  if (!element) return;
+
+  const labelMap = {
+    'genres': `top 50 artists (${rangeLabel})`,
+    'track-popularity': `top 50 songs (${rangeLabel})`,
+    'artist-popularity': `top 50 artists (${rangeLabel})`,
+    'duration': `top 50 songs (${rangeLabel})`,
+    'contributing': `top 50 songs (${rangeLabel})`,
+    'track-quadrant': `top 50 songs (${rangeLabel})`,
+    'artist-quadrant': `top 50 artists (${rangeLabel})`,
+    'duration-quadrant': `top 50 songs (${rangeLabel})`,
+    'followers-quadrant': `top 50 artists (${rangeLabel})`
+  };
+
+  element.textContent = labelMap[type] || `top 50 (${rangeLabel})`;
+}
+
+// Render individual analysis card based on its ID and range
+async function renderAnalysisCardByName(cardId, range) {
+  // Fetch data if not already cached
+  if (!appData.topArtists[range]) {
+    try {
+      const res = await spotifyFetch(`/me/top/artists?time_range=${range}&limit=50`);
+      appData.topArtists[range] = await res.json();
+    } catch (err) {
+      console.error(`Error fetching artists data for range ${range}:`, err);
+      return;
+    }
+  }
+
+  if (!appData.topTracks[range]) {
+    try {
+      const res = await spotifyFetch(`/me/top/tracks?time_range=${range}&limit=50`);
+      appData.topTracks[range] = await res.json();
+    } catch (err) {
+      console.error(`Error fetching tracks data for range ${range}:`, err);
+      return;
+    }
+  }
+
+  const activeArtists = appData.topArtists[range];
+  const activeTracks = appData.topTracks[range];
+
+  // Update data source labels
+  const rangeLabels = {
+    short_term: '4 weeks',
+    medium_term: '6 months',
+    long_term: 'all time'
+  };
+  const rangeLabel = rangeLabels[range] || '6 months';
+
+  // Render the appropriate card based on cardId
+  switch (cardId) {
+    case 'genres':
+    case 'listening-profile':
+      renderGenreDistributionCard(activeArtists, rangeLabel);
+      updateDataSourceLabel('analysis-genres-source', 'genres', rangeLabel);
+      break;
+    case 'track-popularity':
+      renderPopularityDistribution(activeTracks);
+      updateDataSourceLabel('analysis-popularity-source', 'track-popularity', rangeLabel);
+      break;
+    case 'artist-popularity':
+      renderArtistPopularityDistribution(activeArtists);
+      updateDataSourceLabel('analysis-artist-popularity-source', 'artist-popularity', rangeLabel);
+      break;
+    case 'duration':
+      renderDurationDistribution(activeTracks);
+      updateDataSourceLabel('analysis-duration-source', 'duration', rangeLabel);
+      break;
+    case 'contributing':
+      renderTopContributingArtists(activeTracks);
+      updateDataSourceLabel('analysis-contributing-source', 'contributing', rangeLabel);
+      break;
+    case 'track-quadrant':
+      renderPopularityRankQuadrant(activeTracks);
+      updateDataSourceLabel('analysis-quadrant-source', 'track-quadrant', rangeLabel);
+      break;
+    case 'artist-quadrant':
+      renderArtistRankQuadrant(activeArtists);
+      updateDataSourceLabel('analysis-artist-quadrant-source', 'artist-quadrant', rangeLabel);
+      break;
+    case 'duration-quadrant':
+      renderDurationPopularityQuadrant(activeTracks);
+      updateDataSourceLabel('analysis-duration-quadrant-source', 'duration-quadrant', rangeLabel);
+      break;
+    case 'followers-quadrant':
+      renderFollowersPopularityQuadrant(activeArtists);
+      updateDataSourceLabel('analysis-followers-quadrant-source', 'followers-quadrant', rangeLabel);
+      break;
+  }
+}
+
+// Render genre distribution and listening profile cards
+function renderGenreDistributionCard(activeArtists, rangeLabel) {
+  const chartContainer = document.getElementById('genres-chart-container');
+  const donutContainer = document.getElementById('genre-donut');
+  const tasteTitle = document.getElementById('taste-title');
+  const tasteDesc = document.getElementById('taste-description');
+  const primaryGenreVal = document.getElementById('genre-stat-primary');
+  const uniqueGenresVal = document.getElementById('genre-stat-unique');
+  const topShareVal = document.getElementById('genre-stat-share');
+
+  if (!activeArtists || !activeArtists.items || activeArtists.items.length === 0) {
+    chartContainer.innerHTML = '<div class="loading-inline">Not enough artist data to display genres. Please listen to more music first.</div>';
+    donutContainer.innerHTML = '';
+    return;
+  }
+
+  const genreCounts = {};
+  activeArtists.items.forEach(artist => {
+    artist.genres.forEach(genre => {
+      genreCounts[genre] = (genreCounts[genre] || 0) + 1;
+    });
+  });
+
+  const sortedGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]);
+  const totalHits = Object.values(genreCounts).reduce((a, b) => a + b, 0);
+  const uniqueCount = sortedGenres.length;
+
+  primaryGenreVal.textContent = sortedGenres.length > 0 ? sortedGenres[0][0] : '-';
+  uniqueGenresVal.textContent = uniqueCount;
+  topShareVal.textContent = sortedGenres.length > 0
+    ? `${Math.round((sortedGenres[0][1] / totalHits) * 100)}%`
+    : '0%';
+
+  chartContainer.innerHTML = '';
+  const displayGenres = sortedGenres.slice(0, 6);
+
+  displayGenres.forEach(([genre, count], index) => {
+    const percentage = Math.round((count / totalHits) * 100);
+    const bar = document.createElement('div');
+    bar.className = 'genre-bar-container interactive-genre-bar';
+    bar.title = `Click to filter artists by ${genre}`;
+    bar.innerHTML = `
+      <div class="genre-bar-info">
+        <span class="genre-bar-name">${String(index + 1).padStart(2, '0')} / ${genre}</span>
+        <span class="genre-bar-percentage">${count} artist${count > 1 ? 's' : ''} · ${percentage}%</span>
+      </div>
+      <div class="genre-bar-wrapper">
+        <div class="genre-bar-fill" style="width: ${percentage}%"></div>
+      </div>
+    `;
+    bar.addEventListener('click', () => {
+      applyGenreFilterToArtists(genre);
+    });
+    chartContainer.appendChild(bar);
+  });
+
+  renderGenreDonut(sortedGenres, totalHits);
+
+  if (sortedGenres.length === 0) {
+    tasteTitle.textContent = 'Insufficient signal';
+    tasteDesc.textContent = 'Listen to more artists on Spotify to build a useful genre profile.';
+    return;
+  }
+
+  const topGenre = sortedGenres[0][0].toLowerCase();
+  if (topGenre.includes('rock') || topGenre.includes('metal') || topGenre.includes('grunge')) {
+    tasteTitle.textContent = 'High-gain architecture';
+    tasteDesc.textContent = 'Guitar-led, rhythm-forward listening with a preference for weight, texture, and strong band dynamics.';
+  } else if (topGenre.includes('pop') || topGenre.includes('dance')) {
+    tasteTitle.textContent = 'Hook-driven systems';
+    tasteDesc.textContent = 'Clean production, immediate melodies, and high-energy arrangements dominate your current listening profile.';
+  } else if (topGenre.includes('rap') || topGenre.includes('hip hop') || topGenre.includes('trap')) {
+    tasteTitle.textContent = 'Low-end focused';
+    tasteDesc.textContent = 'Bass, cadence, and vocal flow are the strongest signals across your top-artist set.';
+  } else if (topGenre.includes('indie') || topGenre.includes('alternative') || topGenre.includes('folk')) {
+    tasteTitle.textContent = 'Independent signal';
+    tasteDesc.textContent = 'Atmospheric arrangements, organic production, and introspective songwriting recur across your taste profile.';
+  } else if (topGenre.includes('electronic') || topGenre.includes('house') || topGenre.includes('techno') || topGenre.includes('edm')) {
+    tasteTitle.textContent = 'Synthetic runtime';
+    tasteDesc.textContent = 'Repetition, detailed sound design, and electronic rhythm form the core of your listening environment.';
+  } else if (topGenre.includes('jazz') || topGenre.includes('blues') || topGenre.includes('soul') || topGenre.includes('r&b')) {
+    tasteTitle.textContent = 'Harmonic depth';
+    tasteDesc.textContent = 'Vocal detail, expressive harmony, and groove carry more weight than genre boundaries in your listening.';
+  } else {
+    tasteTitle.textContent = 'Distributed taste';
+    tasteDesc.textContent = 'Your top artists span a broad set of sub-genres without a single category overwhelming the rest.';
+  }
 }
 
 // RENDER GENRES TAB
@@ -865,11 +1647,54 @@ function renderAnalysisTab() {
     popularitySource.textContent = `top 50 songs (${rangeLabel})`;
   }
 
+  const quadrantSource = document.getElementById('analysis-quadrant-source');
+  if (quadrantSource) {
+    quadrantSource.textContent = `top 50 songs (${rangeLabel})`;
+  }
+
+  const artistPopularitySource = document.getElementById('analysis-artist-popularity-source');
+  if (artistPopularitySource) {
+    artistPopularitySource.textContent = `top 50 artists (${rangeLabel})`;
+  }
+
+  const durationSource = document.getElementById('analysis-duration-source');
+  if (durationSource) {
+    durationSource.textContent = `top 50 songs (${rangeLabel})`;
+  }
+
+  const contributingSource = document.getElementById('analysis-contributing-source');
+  if (contributingSource) {
+    contributingSource.textContent = `top 50 songs (${rangeLabel})`;
+  }
+
+  const artistQuadrantSource = document.getElementById('analysis-artist-quadrant-source');
+  if (artistQuadrantSource) {
+    artistQuadrantSource.textContent = `top 50 artists (${rangeLabel})`;
+  }
+
+  const durationQuadrantSource = document.getElementById('analysis-duration-quadrant-source');
+  if (durationQuadrantSource) {
+    durationQuadrantSource.textContent = `top 50 songs (${rangeLabel})`;
+  }
+
+  const followersQuadrantSource = document.getElementById('analysis-followers-quadrant-source');
+  if (followersQuadrantSource) {
+    followersQuadrantSource.textContent = `top 50 artists (${rangeLabel})`;
+  }
+
   // Draw the additional charts on this tab!
   renderHourlyActivityChart(appData.recentlyPlayed);
+  renderDayOfWeekActivityChart(appData.recentlyPlayed);
 
   const activeTracks = appData.topTracks[currentRange] || appData.topTracks['medium_term'];
   renderPopularityDistribution(activeTracks);
+  renderArtistPopularityDistribution(activeArtists);
+  renderDurationDistribution(activeTracks);
+  renderTopContributingArtists(activeTracks);
+  renderPopularityRankQuadrant(activeTracks);
+  renderArtistRankQuadrant(activeArtists);
+  renderDurationPopularityQuadrant(activeTracks);
+  renderFollowersPopularityQuadrant(activeArtists);
 }
 
 function renderGenreDonut(sortedGenres, totalHits) {
@@ -927,7 +1752,7 @@ async function loadRecentlyPlayed() {
   grid.innerHTML = spinnerHtml;
 
   try {
-    const res = await spotifyFetch('/api/recently-played?limit=50');
+    const res = await spotifyFetch('/me/player/recently-played?limit=50');
     const data = await res.json();
     appData.recentlyPlayed = data;
     renderRecentlyPlayed(data);
@@ -1200,23 +2025,23 @@ function renderHourlyActivityChart(recent) {
     const x = hour * (barWidth + gap) + 5;
     const barHeight = (count / maxCount) * 115; // Max height 115px
     const y = 130 - barHeight;
-    
+
     const barColor = count > 0 ? 'var(--accent)' : 'var(--line-strong)';
-    const hoverTitle = `${String(hour).padStart(2, '0')}:00 - ${count} play${count !== 1 ? 's' : ''}`;
-    
+
     svgContent += `
-      <rect 
-        x="${x}" y="${y}" 
-        width="${barWidth}" height="${barHeight}" 
-        rx="3" ry="3" 
-        fill="${barColor}" 
-        opacity="0.8" 
+      <rect
+        class="hourly-bar"
+        data-hour="${hour}"
+        data-count="${count}"
+        x="${x}" y="${y}"
+        width="${barWidth}" height="${barHeight}"
+        rx="3" ry="3"
+        fill="${barColor}"
+        opacity="0.8"
         style="transition: all 0.2s ease-in-out; cursor: pointer;"
         onmouseover="this.setAttribute('opacity', '1'); this.setAttribute('fill', 'var(--accent-bright)')"
         onmouseout="this.setAttribute('opacity', '0.8'); this.setAttribute('fill', '${barColor}')"
-      >
-        <title>${hoverTitle}</title>
-      </rect>
+      ></rect>
     `;
   });
 
@@ -1225,11 +2050,11 @@ function renderHourlyActivityChart(recent) {
   labels.forEach(hour => {
     const x = hour * (barWidth + gap) + 5 + (barWidth / 2);
     svgContent += `
-      <text 
-        x="${x}" y="150" 
-        fill="var(--dim)" 
-        font-size="10" 
-        font-family="var(--mono)" 
+      <text
+        x="${x}" y="150"
+        fill="var(--dim)"
+        font-size="10"
+        font-family="var(--mono)"
         text-anchor="middle"
       >${String(hour).padStart(2, '0')}</text>
     `;
@@ -1237,6 +2062,113 @@ function renderHourlyActivityChart(recent) {
 
   svgContent += `</svg>`;
   container.innerHTML = svgContent;
+
+  attachChartTooltip(container, container.querySelectorAll('.hourly-bar'), (bar) => {
+    const hour = bar.getAttribute('data-hour');
+    const count = bar.getAttribute('data-count');
+    return `${String(hour).padStart(2, '0')}:00 — ${count} play${count !== '1' ? 's' : ''}`;
+  });
+}
+
+// Wires up a floating tooltip that follows the mouse over a set of SVG shapes.
+// getLabel(el) returns the text to show for the hovered element.
+function attachChartTooltip(container, elements, getLabel) {
+  let tooltip = container.querySelector('.chart-tooltip');
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.className = 'chart-tooltip hidden';
+    container.appendChild(tooltip);
+  }
+
+  elements.forEach((el) => {
+    el.addEventListener('mouseenter', () => {
+      tooltip.textContent = getLabel(el);
+      tooltip.classList.remove('hidden');
+    });
+    el.addEventListener('mousemove', (e) => {
+      const rect = container.getBoundingClientRect();
+      tooltip.style.left = `${e.clientX - rect.left}px`;
+      tooltip.style.top = `${e.clientY - rect.top}px`;
+    });
+    el.addEventListener('mouseleave', () => {
+      tooltip.classList.add('hidden');
+    });
+  });
+}
+
+// RENDER DAY-OF-WEEK LISTENING ACTIVITY CHART (SVG) — companion to the hourly chart
+function renderDayOfWeekActivityChart(recent) {
+  const container = document.getElementById('day-of-week-chart-container');
+  if (!container) return;
+
+  if (!recent || !recent.items || recent.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">No stream activity available.</div>';
+    return;
+  }
+
+  // Monday-first week, matching UK convention used elsewhere in the app.
+  const dayLabels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+  const dayCounts = Array(7).fill(0);
+  recent.items.forEach((item) => {
+    const jsDay = new Date(item.played_at).getDay(); // 0 = Sunday ... 6 = Saturday
+    const mondayFirstIndex = (jsDay + 6) % 7; // 0 = Monday ... 6 = Sunday
+    dayCounts[mondayFirstIndex]++;
+  });
+
+  const maxCount = Math.max(...dayCounts, 1);
+  const barWidth = 46;
+  const gap = 20;
+  const chartWidth = dayLabels.length * (barWidth + gap);
+
+  let svgContent = `<svg viewBox="0 0 ${chartWidth} 160" style="width: 100%; height: 100%; overflow: visible;">`;
+
+  svgContent += `
+    <line x1="0" y1="130" x2="${chartWidth}" y2="130" stroke="var(--line)" stroke-width="1" />
+    <line x1="0" y1="65" x2="${chartWidth}" y2="65" stroke="var(--line)" stroke-width="1" stroke-dasharray="4,4" />
+    <line x1="0" y1="0" x2="${chartWidth}" y2="0" stroke="var(--line)" stroke-dasharray="4,4" />
+  `;
+
+  dayCounts.forEach((count, index) => {
+    const x = index * (barWidth + gap) + gap / 2;
+    const barHeight = (count / maxCount) * 115;
+    const y = 130 - barHeight;
+    const barColor = count > 0 ? 'var(--accent)' : 'var(--line-strong)';
+
+    svgContent += `
+      <rect
+        class="day-of-week-bar"
+        data-day="${dayLabels[index]}"
+        data-count="${count}"
+        x="${x}" y="${y}"
+        width="${barWidth}" height="${barHeight}"
+        rx="3" ry="3"
+        fill="${barColor}"
+        opacity="0.8"
+        style="transition: all 0.2s ease-in-out; cursor: pointer;"
+        onmouseover="this.setAttribute('opacity', '1'); this.setAttribute('fill', 'var(--accent-bright)')"
+        onmouseout="this.setAttribute('opacity', '0.8'); this.setAttribute('fill', '${barColor}')"
+      ></rect>
+    `;
+
+    svgContent += `
+      <text
+        x="${x + barWidth / 2}" y="150"
+        fill="var(--dim)"
+        font-size="10"
+        font-family="var(--mono)"
+        text-anchor="middle"
+      >${dayLabels[index]}</text>
+    `;
+  });
+
+  svgContent += `</svg>`;
+  container.innerHTML = svgContent;
+
+  attachChartTooltip(container, container.querySelectorAll('.day-of-week-bar'), (bar) => {
+    const day = bar.getAttribute('data-day');
+    const count = bar.getAttribute('data-count');
+    return `${day} — ${count} play${count !== '1' ? 's' : ''}`;
+  });
 }
 
 // RENDER POPULARITY DISTRIBUTION CHART
@@ -1313,4 +2245,922 @@ function renderPopularityDistribution(topTracks) {
   `;
 }
 
+// RENDER ARTIST POPULARITY DISTRIBUTION CHART — same buckets as the track version, for artists
+function renderArtistPopularityDistribution(topArtists) {
+  const container = document.getElementById('artist-popularity-distribution-container');
+  if (!container) return;
 
+  if (!topArtists || !topArtists.items || topArtists.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">No artist popularity metrics available.</div>';
+    return;
+  }
+
+  let mainstream = 0;
+  let popular = 0;
+  let alternative = 0;
+  let obscure = 0;
+  const total = topArtists.items.length;
+
+  topArtists.items.forEach((artist) => {
+    const pop = artist.popularity;
+    if (pop >= 80) mainstream++;
+    else if (pop >= 60) popular++;
+    else if (pop >= 30) alternative++;
+    else obscure++;
+  });
+
+  const percentages = {
+    mainstream: Math.round((mainstream / total) * 100),
+    popular: Math.round((popular / total) * 100),
+    alternative: Math.round((alternative / total) * 100),
+    obscure: Math.round((obscure / total) * 100)
+  };
+
+  container.innerHTML = `
+    <div class="genre-bar-container">
+      <div class="genre-bar-info">
+        <span class="genre-bar-name" style="font-weight: 500;">Mainstream Hits (80-100)</span>
+        <span class="genre-bar-percentage">${percentages.mainstream}%</span>
+      </div>
+      <div class="genre-bar-wrapper">
+        <div class="genre-bar-fill" style="width: ${percentages.mainstream}%; background: var(--green);"></div>
+      </div>
+    </div>
+
+    <div class="genre-bar-container">
+      <div class="genre-bar-info">
+        <span class="genre-bar-name" style="font-weight: 500;">Popular & Hot (60-79)</span>
+        <span class="genre-bar-percentage">${percentages.popular}%</span>
+      </div>
+      <div class="genre-bar-wrapper">
+        <div class="genre-bar-fill" style="width: ${percentages.popular}%; background: var(--accent);"></div>
+      </div>
+    </div>
+
+    <div class="genre-bar-container">
+      <div class="genre-bar-info">
+        <span class="genre-bar-name" style="font-weight: 500;">Alternative / Indie (30-59)</span>
+        <span class="genre-bar-percentage">${percentages.alternative}%</span>
+      </div>
+      <div class="genre-bar-wrapper">
+        <div class="genre-bar-fill" style="width: ${percentages.alternative}%; background: var(--accent-bright);"></div>
+      </div>
+    </div>
+
+    <div class="genre-bar-container">
+      <div class="genre-bar-info">
+        <span class="genre-bar-name" style="font-weight: 500;">Obscure & Underground (0-29)</span>
+        <span class="genre-bar-percentage">${percentages.obscure}%</span>
+      </div>
+      <div class="genre-bar-wrapper">
+        <div class="genre-bar-fill" style="width: ${percentages.obscure}%; background: var(--dim);"></div>
+      </div>
+    </div>
+  `;
+}
+
+// RENDER TRACK DURATION DISTRIBUTION CHART
+function renderDurationDistribution(topTracks) {
+  const container = document.getElementById('duration-distribution-container');
+  if (!container) return;
+
+  if (!topTracks || !topTracks.items || topTracks.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">No track duration data available.</div>';
+    return;
+  }
+
+  const buckets = [
+    { label: 'Under 2 min', max: 120000, count: 0, color: 'var(--dim)' },
+    { label: '2-3 min', max: 180000, count: 0, color: 'var(--accent-bright)' },
+    { label: '3-4 min', max: 240000, count: 0, color: 'var(--accent)' },
+    { label: '4-5 min', max: 300000, count: 0, color: 'var(--green)' },
+    { label: '5 min+', max: Infinity, count: 0, color: 'var(--accent)' }
+  ];
+
+  const total = topTracks.items.length;
+  topTracks.items.forEach((track) => {
+    const bucket = buckets.find((b) => track.duration_ms < b.max);
+    bucket.count++;
+  });
+
+  container.innerHTML = buckets.map((bucket) => {
+    const percentage = Math.round((bucket.count / total) * 100);
+    return `
+      <div class="genre-bar-container">
+        <div class="genre-bar-info">
+          <span class="genre-bar-name" style="font-weight: 500;">${bucket.label}</span>
+          <span class="genre-bar-percentage">${bucket.count} track${bucket.count !== 1 ? 's' : ''} · ${percentage}%</span>
+        </div>
+        <div class="genre-bar-wrapper">
+          <div class="genre-bar-fill" style="width: ${percentage}%; background: ${bucket.color};"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// RENDER TOP CONTRIBUTING ARTISTS — which artists appear most often across the top tracks list (features included)
+function renderTopContributingArtists(topTracks) {
+  const container = document.getElementById('top-contributing-artists-container');
+  if (!container) return;
+
+  if (!topTracks || !topTracks.items || topTracks.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">No track data available.</div>';
+    return;
+  }
+
+  const artistCounts = {};
+  topTracks.items.forEach((track) => {
+    track.artists.forEach((artist) => {
+      artistCounts[artist.name] = (artistCounts[artist.name] || 0) + 1;
+    });
+  });
+
+  const sortedArtists = Object.entries(artistCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+
+  if (sortedArtists.length === 0 || sortedArtists[0][1] <= 1) {
+    container.innerHTML = '<div class="loading-inline">No repeat artists — your top tracks are spread across different artists.</div>';
+    return;
+  }
+
+  const maxCount = sortedArtists[0][1];
+
+  container.innerHTML = sortedArtists.map(([name, count]) => {
+    const percentage = Math.round((count / maxCount) * 100);
+    return `
+      <div class="genre-bar-container">
+        <div class="genre-bar-info">
+          <span class="genre-bar-name">${escapeHtml(name)}</span>
+          <span class="genre-bar-percentage">${count} track${count !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="genre-bar-wrapper">
+          <div class="genre-bar-fill" style="width: ${percentage}%;"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// SHARED SCATTER/QUADRANT RENDERER
+// points: [{ x, y, tooltip }] with x/y normalized to [0, 1] — x=0 left, x=1
+// right, y=0 top, y=1 bottom. Callers own the meaning of each axis and must
+// normalize their own data into that space before calling this.
+function renderQuadrantScatter(container, points, labels) {
+  const width = 560;
+  const height = 320;
+  const padding = 36;
+  const plotW = width - padding * 2;
+  const plotH = height - padding * 2;
+  const midX = padding + plotW / 2;
+  const midY = padding + plotH / 2;
+
+  let svg = `<svg viewBox="0 0 ${width} ${height}" style="width: 100%; height: auto; overflow: visible;">`;
+
+  // Quadrant background tints
+  svg += `<rect x="${padding}" y="${padding}" width="${plotW / 2}" height="${plotH / 2}" fill="var(--accent-soft)" opacity="0.5" />`;
+  svg += `<rect x="${midX}" y="${padding}" width="${plotW / 2}" height="${plotH / 2}" fill="var(--green)" opacity="0.07" />`;
+
+  // Divider lines
+  svg += `<line x1="${midX}" y1="${padding}" x2="${midX}" y2="${height - padding}" stroke="var(--line-strong)" stroke-dasharray="4,4" />`;
+  svg += `<line x1="${padding}" y1="${midY}" x2="${width - padding}" y2="${midY}" stroke="var(--line-strong)" stroke-dasharray="4,4" />`;
+  svg += `<rect x="${padding}" y="${padding}" width="${plotW}" height="${plotH}" fill="none" stroke="var(--line)" />`;
+
+  // Quadrant labels — sit in the margins above/below the plot rect so they
+  // never collide with dots plotted right at the corners.
+  svg += `<text x="${padding + 8}" y="${padding - 12}" fill="var(--accent-bright)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">${labels.topLeft}</text>`;
+  svg += `<text x="${width - padding - 8}" y="${padding - 12}" text-anchor="end" fill="var(--green)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">${labels.topRight}</text>`;
+  svg += `<text x="${padding + 8}" y="${height - padding + 18}" fill="var(--dim)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">${labels.bottomLeft}</text>`;
+  svg += `<text x="${width - padding - 8}" y="${height - padding + 18}" text-anchor="end" fill="var(--dim)" font-size="9" font-family="var(--mono)" letter-spacing="0.05em">${labels.bottomRight}</text>`;
+
+  // Axis labels
+  svg += `<text x="${width / 2}" y="${height - 4}" text-anchor="middle" fill="var(--dim)" font-size="10" font-family="var(--mono)">${labels.xAxis}</text>`;
+  svg += `<text x="14" y="${height / 2}" text-anchor="middle" fill="var(--dim)" font-size="10" font-family="var(--mono)" transform="rotate(-90 14 ${height / 2})">${labels.yAxis}</text>`;
+
+  points.forEach((p, index) => {
+    const cx = padding + p.x * plotW;
+    const cy = padding + p.y * plotH;
+    svg += `<circle class="quadrant-dot" data-index="${index}" cx="${cx}" cy="${cy}" r="5" fill="var(--accent)" opacity="0.85" stroke="var(--bg)" stroke-width="1" style="cursor: pointer;"></circle>`;
+  });
+
+  svg += `</svg>`;
+  container.innerHTML = svg;
+
+  attachChartTooltip(container, container.querySelectorAll('.quadrant-dot'), (dot) => {
+    return points[Number(dot.getAttribute('data-index'))].tooltip;
+  });
+}
+
+const RANK_QUADRANT_LABELS = {
+  topLeft: 'PERSONAL GEMS',
+  topRight: 'MAINSTREAM FAVES',
+  bottomLeft: 'DEEP CUTS',
+  bottomRight: 'BACKGROUND HITS',
+  xAxis: 'POPULARITY →',
+  yAxis: 'HIGHER PERSONAL RANK →'
+};
+
+// X = Spotify's global popularity score (mainstream-ness). Y = your rank
+// within this list (rank 1 at the top).
+function renderPopularityRankQuadrant(topTracks) {
+  const container = document.getElementById('popularity-rank-quadrant-container');
+  if (!container) return;
+
+  if (!topTracks || !topTracks.items || topTracks.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">Not enough track data to plot.</div>';
+    return;
+  }
+
+  const items = topTracks.items;
+  const total = items.length;
+  const points = items.map((track, index) => {
+    const rank = index + 1;
+    const y = total > 1 ? (rank - 1) / (total - 1) : 0.5;
+    return { x: track.popularity / 100, y, tooltip: `#${rank} ${track.name} — ${track.popularity}% popularity` };
+  });
+
+  renderQuadrantScatter(container, points, RANK_QUADRANT_LABELS);
+}
+
+// Same idea as the track quadrant above, but for your top artists.
+function renderArtistRankQuadrant(topArtists) {
+  const container = document.getElementById('artist-rank-quadrant-container');
+  if (!container) return;
+
+  if (!topArtists || !topArtists.items || topArtists.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">Not enough artist data to plot.</div>';
+    return;
+  }
+
+  const items = topArtists.items;
+  const total = items.length;
+  const points = items.map((artist, index) => {
+    const rank = index + 1;
+    const y = total > 1 ? (rank - 1) / (total - 1) : 0.5;
+    return { x: artist.popularity / 100, y, tooltip: `#${rank} ${artist.name} — ${artist.popularity}% popularity` };
+  });
+
+  renderQuadrantScatter(container, points, RANK_QUADRANT_LABELS);
+}
+
+// X = popularity. Y = track duration (longer plots higher) — are your
+// mainstream favourites long epics or quick hits?
+function renderDurationPopularityQuadrant(topTracks) {
+  const container = document.getElementById('duration-popularity-quadrant-container');
+  if (!container) return;
+
+  if (!topTracks || !topTracks.items || topTracks.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">Not enough track data to plot.</div>';
+    return;
+  }
+
+  const items = topTracks.items;
+  const durations = items.map((t) => t.duration_ms);
+  const minDur = Math.min(...durations);
+  const maxDur = Math.max(...durations);
+  const range = maxDur - minDur || 1;
+
+  const points = items.map((track) => ({
+    x: track.popularity / 100,
+    y: 1 - (track.duration_ms - minDur) / range,
+    tooltip: `${track.name} — ${formatDuration(track.duration_ms)}, ${track.popularity}% popularity`
+  }));
+
+  renderQuadrantScatter(container, points, {
+    topLeft: 'NICHE EPICS',
+    topRight: 'MAINSTREAM EPICS',
+    bottomLeft: 'NICHE QUICK HITS',
+    bottomRight: 'MAINSTREAM QUICK HITS',
+    xAxis: 'POPULARITY →',
+    yAxis: 'LONGER DURATION →'
+  });
+}
+
+// X = popularity. Y = follower count on a log scale (spans orders of
+// magnitude) — surfaces artists with a huge legacy following but modest
+// current buzz, vs. ones breaking out with high popularity but a smaller
+// audience so far. Followers are compared relatively within this top-50 set,
+// not against fixed absolute thresholds.
+function renderFollowersPopularityQuadrant(topArtists) {
+  const container = document.getElementById('followers-popularity-quadrant-container');
+  if (!container) return;
+
+  if (!topArtists || !topArtists.items || topArtists.items.length === 0) {
+    container.innerHTML = '<div class="loading-inline">Not enough artist data to plot.</div>';
+    return;
+  }
+
+  const items = topArtists.items;
+  const logFollowers = items.map((a) => Math.log10(a.followers.total + 1));
+  const minLog = Math.min(...logFollowers);
+  const maxLog = Math.max(...logFollowers);
+  const range = maxLog - minLog || 1;
+
+  const points = items.map((artist, index) => ({
+    x: artist.popularity / 100,
+    y: 1 - (logFollowers[index] - minLog) / range,
+    tooltip: `${artist.name} — ${formatFollowers(artist.followers.total)} followers, ${artist.popularity}% popularity`
+  }));
+
+  renderQuadrantScatter(container, points, {
+    topLeft: 'LEGACY FANBASE',
+    topRight: 'SUPERSTARS',
+    bottomLeft: 'NICHE / EMERGING',
+    bottomRight: 'RISING BUZZ',
+    xAxis: 'POPULARITY →',
+    yAxis: 'MORE FOLLOWERS →'
+  });
+}
+
+// --- GLOBAL SEARCH ---
+// Searches both your already-loaded local data ("In Your Library" — instant,
+// no network call) and Spotify's full catalogue via /v1/search (debounced).
+// Play buttons start real playback via Spotify Connect (not the 30s preview
+// clips used elsewhere), reusing the playback scope the app already has.
+const SEARCH_MIN_CHARS = 2;
+const SEARCH_DEBOUNCE_MS = 350;
+const SEARCH_NO_RESULTS_TEXT = 'No results found. Try a different search.';
+const SEARCH_ERROR_TEXT = "Search failed — try again.";
+
+let searchQuery = '';
+let searchTypeFilter = 'all'; // all | track | artist | album | playlist
+let searchDebounceTimer = null;
+let searchRequestSeq = 0;
+let searchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
+
+// Header search dropdown — a compact quick-results preview, separate from
+// the full Search tab's own state above so typing in the header doesn't
+// disturb whatever's already on that tab.
+const HEADER_SEARCH_LOCAL_LIMIT = 3;
+const HEADER_SEARCH_LIVE_LIMIT = 6;
+let headerSearchOpen = false;
+let headerSearchLocalResults = { tracks: [], artists: [] };
+let headerSearchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
+let headerSearchDebounceTimer = null;
+let headerSearchRequestSeq = 0;
+
+function initSearchTab() {
+  const input = document.getElementById('global-search-input');
+  if (input) {
+    input.addEventListener('input', (e) => onSearchQueryChange(e.target.value, input));
+  }
+
+  // Persistent header search (visible on every tab except Search itself) —
+  // typing there opens a quick-results dropdown in place; Enter (or its
+  // footer row) hands the query off to the full Search tab.
+  const headerInput = document.getElementById('header-search-input');
+  const headerDropdown = document.getElementById('header-search-dropdown');
+  const headerBackdrop = document.getElementById('header-search-backdrop');
+  if (headerInput && headerDropdown && headerBackdrop) {
+    headerInput.addEventListener('input', (e) => {
+      syncSearchInputValues(e.target.value, headerInput);
+      onHeaderSearchQueryChange(e.target.value);
+    });
+    headerInput.addEventListener('focus', () => {
+      if (headerInput.value.trim().length >= SEARCH_MIN_CHARS) onHeaderSearchQueryChange(headerInput.value);
+    });
+    headerInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commitHeaderSearch();
+      } else if (e.key === 'Escape') {
+        closeHeaderSearchDropdown();
+        headerInput.blur();
+      }
+    });
+    headerBackdrop.addEventListener('click', closeHeaderSearchDropdown);
+  }
+
+  const mobileSearchBtn = document.getElementById('btn-mobile-search');
+  if (mobileSearchBtn) {
+    mobileSearchBtn.addEventListener('click', () => {
+      switchTab('search');
+      focusSearchInput();
+    });
+  }
+
+  document.querySelectorAll('.search-type-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.search-type-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      searchTypeFilter = btn.getAttribute('data-search-type');
+
+      renderLocalSearchResults();
+      if (searchQuery.length >= SEARCH_MIN_CHARS) {
+        runSpotifySearch(searchQuery);
+      } else {
+        renderSpotifySearchResults();
+      }
+    });
+  });
+}
+
+function focusSearchInput() {
+  const input = document.getElementById('global-search-input');
+  if (input) input.focus();
+}
+
+// Shared by both the in-tab search box and the persistent header search box
+// so either one can drive the same search state, staying in sync with
+// whichever one the user isn't actively typing in.
+function onSearchQueryChange(value, sourceInput) {
+  searchQuery = value.trim();
+  syncSearchInputValues(value, sourceInput);
+  clearTimeout(searchDebounceTimer);
+  renderLocalSearchResults();
+
+  if (searchQuery.length < SEARCH_MIN_CHARS) {
+    clearSpotifySearchResults();
+    return;
+  }
+  searchDebounceTimer = setTimeout(() => runSpotifySearch(searchQuery), SEARCH_DEBOUNCE_MS);
+}
+
+function syncSearchInputValues(value, sourceInput) {
+  ['global-search-input', 'header-search-input'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && el !== sourceInput && el.value !== value) el.value = value;
+  });
+}
+
+// Drives the header dropdown: local (instant) results render immediately,
+// live Spotify results follow after the usual debounce.
+function onHeaderSearchQueryChange(value) {
+  const query = value.trim();
+  if (query.length < SEARCH_MIN_CHARS) {
+    closeHeaderSearchDropdown();
+    return;
+  }
+
+  headerSearchLocalResults = computeLocalSearchResults(query);
+  renderHeaderSearchDropdown(query);
+  openHeaderSearchDropdown();
+
+  clearTimeout(headerSearchDebounceTimer);
+  headerSearchDebounceTimer = setTimeout(() => runHeaderSearchLive(query), SEARCH_DEBOUNCE_MS);
+}
+
+async function runHeaderSearchLive(query) {
+  const seq = ++headerSearchRequestSeq;
+  try {
+    const res = await spotifyFetch(`/search?q=${encodeURIComponent(query)}&type=track,artist,album,playlist&limit=3`);
+    const data = await res.json();
+    if (seq !== headerSearchRequestSeq) return; // superseded by a newer keystroke or a close
+
+    headerSearchLiveResults = {
+      tracks: (data.tracks && data.tracks.items) || [],
+      artists: (data.artists && data.artists.items) || [],
+      albums: (data.albums && data.albums.items) || [],
+      playlists: ((data.playlists && data.playlists.items) || []).filter(Boolean)
+    };
+    renderHeaderSearchDropdown(query);
+  } catch (err) {
+    if (seq !== headerSearchRequestSeq) return;
+    if (!err.isUnauthorized) {
+      headerSearchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
+      renderHeaderSearchDropdown(query);
+    }
+  }
+}
+
+function renderHeaderSearchDropdown(query) {
+  const dropdown = document.getElementById('header-search-dropdown');
+  if (!dropdown) return;
+
+  const localItems = [
+    ...headerSearchLocalResults.tracks.map((t) => ({ kind: 'track', item: t })),
+    ...headerSearchLocalResults.artists.map((a) => ({ kind: 'artist', item: a }))
+  ].slice(0, HEADER_SEARCH_LOCAL_LIMIT);
+
+  const liveItems = [
+    ...headerSearchLiveResults.tracks.map((t) => ({ kind: 'track', item: t })),
+    ...headerSearchLiveResults.artists.map((a) => ({ kind: 'artist', item: a })),
+    ...headerSearchLiveResults.albums.map((a) => ({ kind: 'album', item: a })),
+    ...headerSearchLiveResults.playlists.map((p) => ({ kind: 'playlist', item: p }))
+  ].slice(0, HEADER_SEARCH_LIVE_LIMIT);
+
+  dropdown.innerHTML = '';
+
+  if (localItems.length === 0 && liveItems.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'header-search-dropdown-empty';
+    empty.textContent = `No quick matches for "${query}" yet.`;
+    dropdown.appendChild(empty);
+  } else {
+    if (localItems.length > 0) dropdown.appendChild(buildHeaderSearchGroup('In Your Library', localItems));
+    if (liveItems.length > 0) dropdown.appendChild(buildHeaderSearchGroup('Spotify', liveItems));
+  }
+
+  const footer = document.createElement('div');
+  footer.className = 'header-search-dropdown-footer';
+  footer.innerHTML = `<span>View all results for "${escapeHtml(query)}"</span><span>&crarr; Enter</span>`;
+  footer.addEventListener('click', commitHeaderSearch);
+  dropdown.appendChild(footer);
+}
+
+function buildHeaderSearchGroup(heading, items) {
+  const group = document.createElement('div');
+  group.className = 'header-search-dropdown-group';
+
+  const headingEl = document.createElement('div');
+  headingEl.className = 'header-search-dropdown-heading';
+  headingEl.textContent = heading;
+  group.appendChild(headingEl);
+
+  items.forEach(({ kind, item }) => {
+    const row = buildHeaderSearchRow(kind, item);
+    if (row) group.appendChild(row);
+  });
+
+  return group;
+}
+
+// Each row links straight to the item on Spotify — a quick jump, distinct
+// from the full Search tab's cards which also offer in-app playback.
+function buildHeaderSearchRow(kind, item) {
+  const meta = getSearchResultMeta(kind, item);
+  if (!meta) return null;
+
+  const row = document.createElement('a');
+  row.className = 'header-search-dropdown-row';
+  row.href = meta.spotifyUrl || '#';
+  row.target = '_blank';
+  row.rel = 'noopener noreferrer';
+  row.innerHTML = `
+    <img class="header-search-dropdown-cover" src="${escapeHtml(meta.cover)}" alt="" loading="lazy">
+    <div class="header-search-dropdown-info">
+      <span class="header-search-dropdown-title">${escapeHtml(meta.title)}</span>
+      <span class="header-search-dropdown-subtitle">${escapeHtml(meta.subtitle)}</span>
+    </div>
+    <span class="header-search-dropdown-kind">${escapeHtml(meta.metaRight)}</span>
+  `;
+  row.addEventListener('click', () => closeHeaderSearchDropdown());
+  return row;
+}
+
+function openHeaderSearchDropdown() {
+  headerSearchOpen = true;
+  document.getElementById('header-search-wrapper').classList.add('search-active');
+  document.getElementById('header-search-dropdown').classList.add('visible');
+  document.getElementById('header-search-backdrop').classList.add('visible');
+  document.getElementById('header-search-input').setAttribute('aria-expanded', 'true');
+}
+
+function closeHeaderSearchDropdown() {
+  if (!headerSearchOpen) return;
+  headerSearchOpen = false;
+  headerSearchRequestSeq++; // invalidate any in-flight live search
+
+  const wrapper = document.getElementById('header-search-wrapper');
+  const dropdown = document.getElementById('header-search-dropdown');
+  const backdrop = document.getElementById('header-search-backdrop');
+  const input = document.getElementById('header-search-input');
+  if (wrapper) wrapper.classList.remove('search-active');
+  if (dropdown) dropdown.classList.remove('visible');
+  if (backdrop) backdrop.classList.remove('visible');
+  if (input) input.setAttribute('aria-expanded', 'false');
+}
+
+// Enter (or the dropdown's footer row) hands the query off to the full
+// Search tab instead of picking any one quick result.
+function commitHeaderSearch() {
+  const headerInput = document.getElementById('header-search-input');
+  const value = headerInput ? headerInput.value.trim() : '';
+  if (value.length < SEARCH_MIN_CHARS) return;
+
+  closeHeaderSearchDropdown();
+  if (currentTab !== 'search') switchTab('search');
+  onSearchQueryChange(value, headerInput);
+  if (headerInput) headerInput.blur();
+}
+
+// Matches against whatever top-tracks/top-artists ranges and recently-played
+// data happen to already be loaded in appData — best-effort, not exhaustive.
+function computeLocalSearchResults(query) {
+  const q = query.toLowerCase();
+
+  const trackMap = new Map();
+  Object.values(appData.topTracks).forEach((data) => {
+    (data && data.items || []).forEach((t) => trackMap.set(t.id, t));
+  });
+  if (appData.recentlyPlayed && appData.recentlyPlayed.items) {
+    appData.recentlyPlayed.items.forEach((entry) => trackMap.set(entry.track.id, entry.track));
+  }
+  const tracks = Array.from(trackMap.values()).filter((t) =>
+    t.name.toLowerCase().includes(q) || t.artists.some((a) => a.name.toLowerCase().includes(q))
+  );
+
+  const artistMap = new Map();
+  Object.values(appData.topArtists).forEach((data) => {
+    (data && data.items || []).forEach((a) => artistMap.set(a.id, a));
+  });
+  const artists = Array.from(artistMap.values()).filter((a) =>
+    a.name.toLowerCase().includes(q) || a.genres.some((g) => g.toLowerCase().includes(q))
+  );
+
+  return { tracks, artists };
+}
+
+function renderLocalSearchResults() {
+  const section = document.getElementById('search-library-section');
+  const grid = document.getElementById('search-library-grid');
+
+  const eligible = searchQuery.length >= SEARCH_MIN_CHARS && searchTypeFilter !== 'album' && searchTypeFilter !== 'playlist';
+  if (!eligible) {
+    section.classList.add('hidden');
+    grid.innerHTML = '';
+    updateSearchVisibility();
+    return;
+  }
+
+  const { tracks, artists } = computeLocalSearchResults(searchQuery);
+  const items = searchTypeFilter === 'artist'
+    ? artists.map((a) => ({ kind: 'artist', item: a }))
+    : searchTypeFilter === 'track'
+      ? tracks.map((t) => ({ kind: 'track', item: t }))
+      : [...tracks.map((t) => ({ kind: 'track', item: t })), ...artists.map((a) => ({ kind: 'artist', item: a }))];
+
+  if (items.length === 0) {
+    section.classList.add('hidden');
+    grid.innerHTML = '';
+  } else {
+    section.classList.remove('hidden');
+    grid.innerHTML = '';
+    items.slice(0, 16).forEach(({ kind, item }) => {
+      const card = buildSearchResultCard(kind, item);
+      if (card) grid.appendChild(card);
+    });
+  }
+
+  updateSearchVisibility();
+}
+
+function clearSpotifySearchResults() {
+  searchRequestSeq++; // invalidate any in-flight request so it's a no-op when it lands
+  searchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
+  ['search-tracks-section', 'search-artists-section', 'search-albums-section', 'search-playlists-section'].forEach((id) => {
+    document.getElementById(id).classList.add('hidden');
+  });
+  document.getElementById('search-loading-indicator').classList.add('hidden');
+  document.getElementById('search-no-results').classList.add('hidden');
+  updateSearchVisibility();
+}
+
+async function runSpotifySearch(query) {
+  const seq = ++searchRequestSeq;
+  const types = searchTypeFilter === 'all' ? 'track,artist,album,playlist' : searchTypeFilter;
+  const limit = searchTypeFilter === 'all' ? 8 : 24;
+
+  document.getElementById('search-loading-indicator').classList.remove('hidden');
+  document.getElementById('search-no-results').classList.add('hidden');
+  updateSearchVisibility();
+
+  try {
+    const res = await spotifyFetch(`/search?q=${encodeURIComponent(query)}&type=${types}&limit=${limit}`);
+    const data = await res.json();
+    if (seq !== searchRequestSeq) return; // a newer search superseded this one
+
+    searchLiveResults = {
+      tracks: (data.tracks && data.tracks.items) || [],
+      artists: (data.artists && data.artists.items) || [],
+      albums: (data.albums && data.albums.items) || [],
+      playlists: ((data.playlists && data.playlists.items) || []).filter(Boolean)
+    };
+    renderSpotifySearchResults();
+  } catch (err) {
+    if (seq !== searchRequestSeq) return;
+    console.error('Spotify search failed:', err);
+    if (!err.isUnauthorized) {
+      searchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
+      renderSpotifySearchResults();
+      const noResultsEl = document.getElementById('search-no-results');
+      noResultsEl.textContent = SEARCH_ERROR_TEXT;
+      noResultsEl.classList.remove('hidden');
+    }
+  } finally {
+    if (seq === searchRequestSeq) {
+      document.getElementById('search-loading-indicator').classList.add('hidden');
+    }
+  }
+}
+
+function renderSpotifySearchResults() {
+  const sectionsByType = {
+    track: { sectionId: 'search-tracks-section', gridId: 'search-tracks-grid', items: searchLiveResults.tracks },
+    artist: { sectionId: 'search-artists-section', gridId: 'search-artists-grid', items: searchLiveResults.artists },
+    album: { sectionId: 'search-albums-section', gridId: 'search-albums-grid', items: searchLiveResults.albums },
+    playlist: { sectionId: 'search-playlists-section', gridId: 'search-playlists-grid', items: searchLiveResults.playlists }
+  };
+
+  let anyLiveResults = false;
+
+  Object.entries(sectionsByType).forEach(([kind, cfg]) => {
+    const sectionEl = document.getElementById(cfg.sectionId);
+    const gridEl = document.getElementById(cfg.gridId);
+    const matchesFilter = searchTypeFilter === 'all' || searchTypeFilter === kind;
+
+    if (!matchesFilter || cfg.items.length === 0) {
+      sectionEl.classList.add('hidden');
+      gridEl.innerHTML = '';
+      return;
+    }
+
+    anyLiveResults = true;
+    sectionEl.classList.remove('hidden');
+    gridEl.innerHTML = '';
+    cfg.items.forEach((item) => {
+      const card = buildSearchResultCard(kind, item);
+      if (card) gridEl.appendChild(card);
+    });
+  });
+
+  const hasLibraryResults = !document.getElementById('search-library-section').classList.contains('hidden');
+  const noResultsEl = document.getElementById('search-no-results');
+  if (!anyLiveResults && !hasLibraryResults && searchQuery.length >= SEARCH_MIN_CHARS) {
+    noResultsEl.textContent = SEARCH_NO_RESULTS_TEXT;
+    noResultsEl.classList.remove('hidden');
+  } else {
+    noResultsEl.classList.add('hidden');
+  }
+
+  updateSearchVisibility();
+}
+
+function updateSearchVisibility() {
+  const wrapper = document.getElementById('search-results-wrapper');
+  const prompt = document.getElementById('search-prompt-state');
+
+  if (searchQuery.length < SEARCH_MIN_CHARS) {
+    wrapper.classList.add('hidden');
+    prompt.classList.remove('hidden');
+  } else {
+    prompt.classList.add('hidden');
+    wrapper.classList.remove('hidden');
+  }
+}
+
+// Shared field extraction for any search result kind — used both by the
+// full-page result cards and the header dropdown's compact rows.
+function getSearchResultMeta(kind, item) {
+  if (!item) return null;
+  const placeholder = 'https://via.placeholder.com/150';
+
+  if (kind === 'track') {
+    return {
+      cover: item.album && item.album.images && item.album.images.length ? item.album.images[0].url : placeholder,
+      title: item.name,
+      subtitle: item.artists.map((a) => a.name).join(', '),
+      thirdLine: item.album ? item.album.name : '',
+      metaLeft: formatDuration(item.duration_ms),
+      metaRight: 'TRACK',
+      spotifyUrl: item.external_urls && item.external_urls.spotify,
+      playBody: { uris: [item.uri] }
+    };
+  }
+  if (kind === 'artist') {
+    return {
+      cover: item.images && item.images.length ? item.images[0].url : placeholder,
+      title: item.name,
+      subtitle: item.genres && item.genres.length ? item.genres[0] : 'Artist',
+      thirdLine: '',
+      metaLeft: item.followers ? `${formatFollowers(item.followers.total)} followers` : '',
+      metaRight: 'ARTIST',
+      spotifyUrl: item.external_urls && item.external_urls.spotify,
+      playBody: { context_uri: item.uri }
+    };
+  }
+  if (kind === 'album') {
+    return {
+      cover: item.images && item.images.length ? item.images[0].url : placeholder,
+      title: item.name,
+      subtitle: (item.artists || []).map((a) => a.name).join(', '),
+      thirdLine: item.release_date ? item.release_date.slice(0, 4) : '',
+      metaLeft: typeof item.total_tracks === 'number' ? `${item.total_tracks} tracks` : '',
+      metaRight: item.album_type ? item.album_type.toUpperCase() : 'ALBUM',
+      spotifyUrl: item.external_urls && item.external_urls.spotify,
+      playBody: { context_uri: item.uri }
+    };
+  }
+  if (kind === 'playlist') {
+    return {
+      cover: item.images && item.images.length ? item.images[0].url : placeholder,
+      title: item.name,
+      subtitle: item.owner && item.owner.display_name ? `By ${item.owner.display_name}` : 'Playlist',
+      thirdLine: '',
+      metaLeft: item.tracks && typeof item.tracks.total === 'number' ? `${item.tracks.total} tracks` : '',
+      metaRight: 'PLAYLIST',
+      spotifyUrl: item.external_urls && item.external_urls.spotify,
+      playBody: { context_uri: item.uri }
+    };
+  }
+  return null;
+}
+
+// Builds a card for any search result kind, reusing the existing track-card
+// layout/CSS. Its play button starts real Spotify Connect playback (uris for
+// a single track, context_uri for an artist/album/playlist "start here").
+function buildSearchResultCard(kind, item) {
+  const meta = getSearchResultMeta(kind, item);
+  if (!meta) return null;
+  const { cover, title, subtitle, thirdLine, metaLeft, metaRight, spotifyUrl, playBody } = meta;
+
+  const div = document.createElement('div');
+  div.className = 'track-card';
+  div.innerHTML = `
+    <div class="track-card-cover-container">
+      <img class="track-card-cover" src="${escapeHtml(cover)}" alt="${escapeHtml(title)}" loading="lazy">
+      <div class="track-card-play-overlay">
+        <button type="button" class="btn-play-preview btn-search-play" title="Play on Spotify" aria-label="Play &quot;${escapeHtml(title)}&quot; on Spotify">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="track-card-details">
+      <a class="track-card-title" href="${escapeHtml(spotifyUrl || '#')}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(title)}">${escapeHtml(title)}</a>
+      <span class="track-card-artist" title="${escapeHtml(subtitle)}">${escapeHtml(subtitle)}</span>
+      ${thirdLine ? `<span class="track-card-album" title="${escapeHtml(thirdLine)}">${escapeHtml(thirdLine)}</span>` : ''}
+      <div class="track-card-meta">
+        <span class="track-card-duration">${escapeHtml(metaLeft)}</span>
+        <span style="font-size: 0.75rem; color: var(--dim); font-family: var(--mono);">${escapeHtml(metaRight)}</span>
+      </div>
+    </div>
+  `;
+
+  const playBtn = div.querySelector('.btn-search-play');
+  if (playBtn && playBody) {
+    playBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      playSearchResult(playBody, title, playBtn);
+    });
+  }
+
+  return div;
+}
+
+async function playSearchResult(body, itemName, buttonEl) {
+  hideSearchPlayError();
+  if (buttonEl) buttonEl.disabled = true;
+
+  try {
+    await SpotifyAuth.apiRequest('/me/player/play', { method: 'PUT', body });
+    // Optimistic UI elsewhere resyncs on its own poll cycle; nudge it now so
+    // the sidebar mini player reflects the new track without a 5s wait.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await pollNowPlaying();
+  } catch (err) {
+    if (err.status === 403) {
+      showSearchPlayError('Playback control needs Spotify Premium.');
+    } else if (err.status === 404) {
+      showSearchPlayError('No active Spotify device found — open Spotify on a device first.');
+    } else if (!err.isUnauthorized) {
+      showSearchPlayError(`Couldn't play "${itemName}".`);
+    }
+  } finally {
+    if (buttonEl) buttonEl.disabled = false;
+  }
+}
+
+function showSearchPlayError(message) {
+  const el = document.getElementById('search-play-error');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove('hidden');
+}
+
+function hideSearchPlayError() {
+  const el = document.getElementById('search-play-error');
+  if (el) el.classList.add('hidden');
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// PWA install support — only caches the static shell, see sw.js.
+// Relative path so registration resolves correctly under a subpath (e.g. GitHub Pages).
+//
+// Browsers throttle their own passive update checks (as infrequently as once
+// per 24h), which meant a deployed change could sit unnoticed by an already-
+// installed PWA for a long time even though the server had it. So: force an
+// explicit update check on load and whenever the app is foregrounded again,
+// and reload once a new worker actually takes over, so a fresh deploy is
+// visible the next time the user opens the app rather than after a wait.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    const registration = await navigator.serviceWorker.register('sw.js');
+
+    registration.update();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) registration.update();
+    });
+
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    });
+  });
+}
