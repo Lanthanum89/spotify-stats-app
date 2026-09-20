@@ -12,7 +12,7 @@ const TAB_ROUTES = ['overview', 'search', 'tracks', 'artists', 'analysis', 'rece
 let isApplyingHistoryNavigation = false;
 
 function tabIdFromHash() {
-  const match = window.location.hash.match(/^#\/(\w+)/);
+  const match = window.location.hash.match(/^#\/(\w+)$/);
   const id = match ? match[1] : '';
   return TAB_ROUTES.includes(id) ? id : null;
 }
@@ -30,14 +30,30 @@ function initRouting() {
   }
 
   window.addEventListener('popstate', () => {
-    // Only react to history entries that are shaped like one of *our*
-    // routes (#/tabname) or are empty. The Analysis tab's own in-page jump
-    // nav (#analysis-group-x) also changes the hash and also fires
-    // popstate in most browsers — that's an unrelated, pre-existing
-    // same-page-anchor feature, and must be left to the browser's native
-    // scroll-to-anchor behaviour rather than being misread here as "not a
-    // valid tab route" and bounced back to Overview.
     const hash = window.location.hash;
+
+    // The Analysis tab's own in-page jump nav (#analysis-group-x) also
+    // changes the hash and also fires popstate in most browsers — an
+    // unrelated, pre-existing same-page-anchor feature. Native scroll-to-
+    // anchor only works if the Analysis pane is actually the visible one,
+    // though (a hidden pane can't be scrolled), so if some other tab is
+    // showing, switch to Analysis first and then finish the scroll
+    // ourselves, since the browser's own attempt happened before that
+    // pane existed to scroll within.
+    const analysisAnchorMatch = hash.match(/^#(analysis-group-[\w-]+)$/);
+    if (analysisAnchorMatch) {
+      if (currentTab !== 'analysis') {
+        isApplyingHistoryNavigation = true;
+        switchTab('analysis');
+        isApplyingHistoryNavigation = false;
+      }
+      document.getElementById(analysisAnchorMatch[1])?.scrollIntoView();
+      return;
+    }
+
+    // Otherwise, only react to history entries shaped like one of *our*
+    // routes (#/tabname) or empty; anything else is left alone rather than
+    // being misread as "not a valid tab route" and bounced back to Overview.
     if (hash !== '' && !/^#\/\w+$/.test(hash)) return;
 
     const tabId = tabIdFromHash() || 'overview';
@@ -901,7 +917,7 @@ function renderNowPlayingOffline() {
 function renderNowPlayingError() {
   document.getElementById('now-playing-status-badge').classList.add('hidden');
   document.getElementById('now-playing-content').innerHTML = `
-    <div class="loading-inline">Couldn&rsquo;t check playback right now.</div>
+    <div class="loading-inline" role="alert">Couldn&rsquo;t check playback right now.</div>
     <button type="button" id="now-playing-retry-btn" class="btn btn-secondary btn-sm margin-top">Retry</button>
   `;
   hideSidebarMiniPlayer();
@@ -1262,12 +1278,12 @@ function renderTopTracks(data) {
         <td>
           <a class="album-link" href="${albumUrl}" target="_blank" rel="noopener noreferrer">${track.album.name}</a>
         </td>
-        <td>
+        <td aria-label="Popularity: ${track.popularity}%">
           <div class="popularity-meter" title="${track.popularity}% popularity">
             <div class="popularity-fill" style="width: ${track.popularity}%"></div>
           </div>
         </td>
-        <td style="text-align: right;">${formatDuration(track.duration_ms)}</td>
+        <td style="text-align: right;" aria-label="Duration: ${formatDuration(track.duration_ms)}">${formatDuration(track.duration_ms)}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -1405,8 +1421,8 @@ function renderArtistsList(tbody, filteredItems, allItems) {
         </div>
       </td>
       <td style="text-transform: capitalize;">${mainGenre}</td>
-      <td>${formatFollowers(artist.followers.total)}</td>
-      <td style="text-align: right;">
+      <td aria-label="Followers: ${formatFollowers(artist.followers.total)}">${formatFollowers(artist.followers.total)}</td>
+      <td style="text-align: right;" aria-label="Popularity: ${artist.popularity}%">
         <div class="popularity-info" style="justify-content: flex-end;">
           <div class="popularity-meter" title="${artist.popularity}% popularity">
             <div class="popularity-fill" style="width: ${artist.popularity}%"></div>
@@ -1558,7 +1574,7 @@ function renderGenreDistributionCard(activeArtists, rangeLabel) {
     bar.title = `Filter artists by ${genre}`;
     bar.setAttribute('role', 'button');
     bar.setAttribute('tabindex', '0');
-    bar.setAttribute('aria-label', `Filter artists by ${escapeHtml(genre)}, ${count} artist${count > 1 ? 's' : ''}, ${percentage}%`);
+    bar.setAttribute('aria-label', `Filter artists by ${genre}, ${count} artist${count > 1 ? 's' : ''}, ${percentage}%`);
     bar.innerHTML = `
       <div class="genre-bar-info">
         <span class="genre-bar-name">${String(index + 1).padStart(2, '0')} / ${escapeHtml(genre)}</span>
@@ -1820,10 +1836,10 @@ function renderRecentlyPlayed(data) {
         <td>
           <a class="album-link" href="${albumUrl}" target="_blank" rel="noopener noreferrer">${track.album.name}</a>
         </td>
-        <td>
+        <td aria-label="Played: ${formatRelativeTime(item.played_at)}">
           <span class="played-at-time">${formatRelativeTime(item.played_at)}</span>
         </td>
-        <td style="text-align: right;">${formatDuration(track.duration_ms)}</td>
+        <td style="text-align: right;" aria-label="Duration: ${formatDuration(track.duration_ms)}">${formatDuration(track.duration_ms)}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -1860,7 +1876,7 @@ function renderTracksGrid(container, items, type) {
     
     const previewLabel = isPlayingThis ? `Pause preview of ${escapeHtml(track.name)}` : `Play preview of ${escapeHtml(track.name)}`;
     const playButton = track.preview_url
-      ? `<button type="button" class="btn-play-preview" data-preview-url="${track.preview_url}" title="Play preview" aria-label="${previewLabel}" aria-pressed="${isPlayingThis}">
+      ? `<button type="button" class="btn-play-preview" data-preview-url="${track.preview_url}" data-track-name="${escapeHtml(track.name)}" title="Play preview" aria-label="${previewLabel}" aria-pressed="${isPlayingThis}">
            <svg class="${btnIconClass}" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
            <svg class="${btnPauseClass}" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
          </button>`
@@ -1926,6 +1942,7 @@ function toggleAudioPreview(previewUrl, button, card) {
   const playIcon = button.querySelector('.play-icon');
   const pauseIcon = button.querySelector('.pause-icon');
   const eq = card.querySelector('.playing-equalizer');
+  const trackName = button.dataset.trackName || '';
 
   // Case 1: Clicked on a currently playing preview -> Pause it
   if (activeAudio && activeAudio.src === previewUrl) {
@@ -1935,12 +1952,16 @@ function toggleAudioPreview(previewUrl, button, card) {
       pauseIcon.classList.remove('hidden');
       card.classList.add('playing');
       if (eq) eq.classList.remove('hidden');
+      button.setAttribute('aria-label', `Pause preview of ${trackName}`);
+      button.setAttribute('aria-pressed', 'true');
     } else {
       activeAudio.pause();
       playIcon.classList.remove('hidden');
       pauseIcon.classList.add('hidden');
       card.classList.remove('playing');
       if (eq) eq.classList.add('hidden');
+      button.setAttribute('aria-label', `Play preview of ${trackName}`);
+      button.setAttribute('aria-pressed', 'false');
     }
     return;
   }
@@ -1953,6 +1974,9 @@ function toggleAudioPreview(previewUrl, button, card) {
       const activePauseIcon = activePlayButton.querySelector('.pause-icon');
       if (activePlayIcon) activePlayIcon.classList.remove('hidden');
       if (activePauseIcon) activePauseIcon.classList.add('hidden');
+      const activeTrackName = activePlayButton.dataset.trackName || '';
+      activePlayButton.setAttribute('aria-label', `Play preview of ${activeTrackName}`);
+      activePlayButton.setAttribute('aria-pressed', 'false');
     }
     if (activeTrackCard) {
       activeTrackCard.classList.remove('playing');
@@ -1972,6 +1996,8 @@ function toggleAudioPreview(previewUrl, button, card) {
       pauseIcon.classList.remove('hidden');
       card.classList.add('playing');
       if (eq) eq.classList.remove('hidden');
+      button.setAttribute('aria-label', `Pause preview of ${trackName}`);
+      button.setAttribute('aria-pressed', 'true');
     })
     .catch(err => {
       console.error("Failed to play audio preview:", err);
@@ -1984,6 +2010,8 @@ function toggleAudioPreview(previewUrl, button, card) {
     pauseIcon.classList.add('hidden');
     card.classList.remove('playing');
     if (eq) eq.classList.add('hidden');
+    button.setAttribute('aria-label', `Play preview of ${trackName}`);
+    button.setAttribute('aria-pressed', 'false');
     activeAudio = null;
     activePlayButton = null;
     activeTrackCard = null;
@@ -3051,6 +3079,7 @@ function renderSpotifySearchResults() {
   if (!anyLiveResults && !hasLibraryResults && searchQuery.length >= SEARCH_MIN_CHARS) {
     noResultsEl.textContent = SEARCH_NO_RESULTS_TEXT;
     noResultsEl.classList.remove('hidden');
+    if (resultsStatusEl) resultsStatusEl.textContent = '';
   } else {
     noResultsEl.classList.add('hidden');
     if (anyLiveResults && resultsStatusEl) {
