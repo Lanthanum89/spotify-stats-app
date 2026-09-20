@@ -390,10 +390,12 @@
              Sticky within the scrolling main content; each group has
              scroll-margin-top so this bar never covers its heading. -->
         <nav class="analysis-jump-nav" id="analysis-jump-nav" aria-label="Jump to Analysis section">
-          <a href="#analysis-group-overview" class="analysis-jump-link">Overview</a>
-          <a href="#analysis-group-habits" class="analysis-jump-link">Listening Habits</a>
-          <a href="#analysis-group-taste" class="analysis-jump-link">Taste</a>
-          <a href="#analysis-group-correlations" class="analysis-jump-link">Correlations</a>
+          <div class="analysis-jump-nav-scroll">
+            <a href="#analysis-group-overview" class="analysis-jump-link">Overview</a>
+            <a href="#analysis-group-habits" class="analysis-jump-link">Habits</a>
+            <a href="#analysis-group-taste" class="analysis-jump-link">Taste</a>
+            <a href="#analysis-group-correlations" class="analysis-jump-link">Correlations</a>
+          </div>
         </nav>
 
         <div class="analysis-group" id="analysis-group-overview">
@@ -443,7 +445,7 @@
         </div>
 
         <div class="analysis-group" id="analysis-group-habits">
-          <span class="analysis-section-title">Listening Habits</span>
+          <span class="analysis-section-title">Habits</span>
           <div class="grid-layout cols-2">
             <!-- HOURLY ACTIVITY CHART -->
             <div class="panel">

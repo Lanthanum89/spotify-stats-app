@@ -1517,20 +1517,15 @@ function renderKeyInsights(activeArtists, activeTracks, rangeLabel) {
   const insights = [];
   const recentItems = appData.recentlyPlayed?.items || [];
 
+  // Deliberately no "most active day" insight here: the last-50-streams
+  // sample is recency-biased, not a real distribution — whichever day you
+  // last had music on all day dominates the count and would misleadingly
+  // read as your "habit". The Day-of-Week Activity chart below is honest
+  // about being a "last 50 streams" snapshot; a single-sentence claim here
+  // isn't.
   if (recentItems.length > 0) {
     const recentDurationMs = recentItems.reduce((total, item) => total + item.track.duration_ms, 0);
     insights.push(`You've logged <strong>${recentItems.length}</strong> plays across <strong>${formatHours(recentDurationMs)}</strong> in your last 50 streams.`);
-
-    const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    const dayCounts = Array(7).fill(0);
-    recentItems.forEach((item) => {
-      const jsDay = new Date(item.played_at).getDay();
-      dayCounts[(jsDay + 6) % 7]++;
-    });
-    const peakDayIndex = dayCounts.indexOf(Math.max(...dayCounts));
-    if (dayCounts[peakDayIndex] > 0) {
-      insights.push(`You're most active on <strong>${dayLabels[peakDayIndex]}s</strong>, based on your recent streams.`);
-    }
   }
 
   if (activeArtists && activeArtists.items && activeArtists.items.length > 0) {

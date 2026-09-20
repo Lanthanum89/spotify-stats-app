@@ -653,30 +653,32 @@ body {
 .analysis-range-row .analysis-section-title { margin: 0; }
 .genre-metrics + .grid-layout { margin-top: 18px; }
 
-/* IN-PAGE ANALYSIS NAVIGATION — jumps between the Overview / Listening
-   Habits / Taste / Correlations groups. Sticky within the scrolling
-   .main-content. Kept to a single row at every width — wrapping to a
-   second, uneven row made the sticky bar's height inconsistent, which let
-   it cover the heading it had just been asked to reveal — by scrolling
-   horizontally instead when the pills don't fit. The background is nearly
-   opaque (rather than the panel translucency used elsewhere) specifically
-   so scrolled-past content can't show through a sticky element sitting on
-   top of it. scroll-margin-top on each group keeps the jumped-to heading
-   clear of the bar. */
+/* IN-PAGE ANALYSIS NAVIGATION — jumps between the Overview / Habits /
+   Taste / Correlations groups. Sticky within the scrolling .main-content.
+   Split into two elements on purpose: the outer <nav> only sticks and
+   paints a solid background, the inner .analysis-jump-nav-scroll only
+   scrolls horizontally. Putting position:sticky and overflow-x on the
+   *same* element is a known source of incorrect sticky-offset
+   calculations in Chromium (the element's own scrollport can get
+   confused with its sticky containing block), which showed up as the bar
+   painting mid-scroll at a stale position and cutting through the
+   paragraph below it. Two elements, two jobs, avoids that entirely.
+   scroll-margin-top on each group keeps the jumped-to heading clear of
+   the bar. */
 .analysis-jump-nav {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 6px;
-  overflow-x: auto;
   position: sticky;
   top: 0;
   z-index: 5;
   padding: 10px 0;
   margin-bottom: 20px;
-  background: rgba(11, 10, 15, 0.97);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
+}
+.analysis-jump-nav-scroll {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
 }
 .analysis-jump-link {
   color: var(--muted);
