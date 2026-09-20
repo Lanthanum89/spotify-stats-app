@@ -1,7 +1,76 @@
 // SoundTracks App JavaScript Logic
+
+// SPA URL ROUTING — each main tab gets a stable, shareable hash route
+// (#/overview, #/tracks, ...) via the History API, so Back/Forward move
+// between app tabs instead of leaving the installed PWA, and a direct link
+// to a route opens straight into that tab. Hash-based (not full paths),
+// since this is served as a static site with no server-side routing to
+// match a path against. Set true only while applying a tab change that
+// *came from* a popstate event, so switchTab doesn't push a redundant
+// second history entry for a navigation the browser already recorded.
+const TAB_ROUTES = ['overview', 'search', 'tracks', 'artists', 'analysis', 'recent'];
+let isApplyingHistoryNavigation = false;
+
+function tabIdFromHash() {
+  const match = window.location.hash.match(/^#\/(\w+)$/);
+  const id = match ? match[1] : '';
+  return TAB_ROUTES.includes(id) ? id : null;
+}
+
+// Called once after the dashboard first loads: opens directly into whatever
+// tab the URL names (falling back to Overview for an empty/invalid route),
+// and starts listening for Back/Forward.
+function initRouting() {
+  const initialTab = tabIdFromHash() || 'overview';
+  history.replaceState({ tab: initialTab }, '', `#/${initialTab}`);
+  if (initialTab !== currentTab) {
+    isApplyingHistoryNavigation = true;
+    switchTab(initialTab);
+    isApplyingHistoryNavigation = false;
+  }
+
+  window.addEventListener('popstate', () => {
+    const hash = window.location.hash;
+
+    // The Analysis tab's own in-page jump nav (#analysis-group-x) also
+    // changes the hash and also fires popstate in most browsers — an
+    // unrelated, pre-existing same-page-anchor feature. Native scroll-to-
+    // anchor only works if the Analysis pane is actually the visible one,
+    // though (a hidden pane can't be scrolled), so if some other tab is
+    // showing, switch to Analysis first and then finish the scroll
+    // ourselves, since the browser's own attempt happened before that
+    // pane existed to scroll within.
+    const analysisAnchorMatch = hash.match(/^#(analysis-group-[\w-]+)$/);
+    if (analysisAnchorMatch) {
+      if (currentTab !== 'analysis') {
+        isApplyingHistoryNavigation = true;
+        switchTab('analysis');
+        isApplyingHistoryNavigation = false;
+      }
+      document.getElementById(analysisAnchorMatch[1])?.scrollIntoView();
+      return;
+    }
+
+    // Otherwise, only react to history entries shaped like one of *our*
+    // routes (#/tabname) or empty; anything else is left alone rather than
+    // being misread as "not a valid tab route" and bounced back to Overview.
+    if (hash !== '' && !/^#\/\w+$/.test(hash)) return;
+
+    const tabId = tabIdFromHash() || 'overview';
+    isApplyingHistoryNavigation = true;
+    switchTab(tabId);
+    isApplyingHistoryNavigation = false;
+  });
+}
+
 let currentTab = 'overview';
 let currentRange = 'medium_term'; // short_term, medium_term, long_term
-let currentView = 'grid'; // grid, list
+// Grid vs list for Top Tracks/Artists/Recent. Defaults to list on phones
+// (a wide grid/table isn't a great primary mobile layout) and grid on
+// larger screens, but a user's own choice — once they touch the toggle —
+// is remembered from then on regardless of screen size.
+const MOBILE_VIEW_QUERY = '(max-width: 800px), (orientation: portrait) and (max-width: 1024px)';
+let currentView = localStorage.getItem('view-mode') || (window.matchMedia(MOBILE_VIEW_QUERY).matches ? 'list' : 'grid');
 let artistFilter = ''; // Filter string for top artists grid
 let trackFilter = ''; // Filter string for top tracks grid
 
@@ -43,6 +112,8 @@ let nowPlayingState = {
 };
 let nowPlayingPollCount = 0;
 let miniPlayerControlPending = false;
+let nowPlayingConsecutiveFailures = 0;
+const NOW_PLAYING_FAILURE_THRESHOLD = 3; // show a visible error after this many polls in a row fail
 
 // --- Spotify API Helper ---
 // apiPath is a path under https://api.spotify.com/v1 (e.g. '/me/top/tracks?...').
@@ -105,10 +176,43 @@ function formatRelativeTime(dateString) {
   });
 }
 
+// Announces a message to screen reader users via the sr-only global status
+// region, for state changes that don't already have their own visible
+// role="alert"/aria-live element. Clearing first (then setting on the next
+// frame) ensures back-to-back identical messages are both announced, since
+// most screen readers only react to an actual content change.
+function announceStatus(message) {
+  const region = document.getElementById('a11y-status');
+  if (!region) return;
+  region.textContent = '';
+  requestAnimationFrame(() => { region.textContent = message; });
+}
+
 // Initialise App
 document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
   checkAuthStatus();
+
+  // Connectivity changes — deliberately just an announcement here, not a
+  // persistent visual banner (that's a larger offline-UX piece of its own).
+  // Now Playing specifically also gets an immediate re-check so it recovers
+  // as soon as the connection does, rather than waiting for the next poll.
+  window.addEventListener('offline', () => {
+    announceStatus('You are offline. Spotify data will not update until you reconnect.');
+    if (nowPlayingPollTimer) renderNowPlayingOffline();
+  });
+  window.addEventListener('online', () => {
+    announceStatus('Back online.');
+    if (nowPlayingPollTimer) pollNowPlaying();
+  });
+
+  // Now Playing's own "Retry" button (shown after repeated poll failures)
+  document.getElementById('now-playing-content').addEventListener('click', (e) => {
+    if (e.target.closest('#now-playing-retry-btn')) {
+      nowPlayingConsecutiveFailures = 0;
+      pollNowPlaying();
+    }
+  });
 });
 
 // Check if user is authenticated
@@ -164,7 +268,12 @@ function applySidebarCollapsedState(collapsed) {
 
   sidebar.classList.toggle('collapsed', collapsed);
   dashboardLayout.classList.toggle('sidebar-collapsed', collapsed);
-  sidebar.setAttribute('aria-expanded', String(!collapsed));
+
+  const collapseBtn = document.getElementById('btn-sidebar-collapse');
+  if (collapseBtn) {
+    collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+    collapseBtn.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+  }
 }
 
 // Mobile nav drawer (hamburger menu, phones & tablets in portrait)
@@ -318,12 +427,14 @@ function setupEventListeners() {
     });
   });
 
-  // View toggle buttons (Grid vs List)
+  // View toggle buttons (Grid vs List) — an explicit click is a deliberate
+  // choice, so it's persisted and wins over the mobile/desktop default from
+  // here on.
   document.querySelectorAll('.view-toggle-btn').forEach(button => {
     button.addEventListener('click', () => {
-      document.querySelectorAll('.view-toggle-btn').forEach(btn => btn.classList.remove('active'));
-      button.classList.add('active');
       currentView = button.getAttribute('data-view');
+      localStorage.setItem('view-mode', currentView);
+      updateViewToggleButtons();
 
       // Re-render active tab if it's tracks, artists, or recent
       if (currentTab === 'tracks') {
@@ -419,11 +530,28 @@ function setupEventListeners() {
   }
 }
 
+// Keeps the grid/list toggle buttons' active state + aria-pressed in sync
+// with `currentView`.
+function updateViewToggleButtons() {
+  document.querySelectorAll('.view-toggle-btn').forEach((btn) => {
+    const isActive = btn.getAttribute('data-view') === currentView;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', String(isActive));
+  });
+}
+
 // Switch tabs logic
 function switchTab(tabId) {
   currentTab = tabId;
   closeHeaderSearchDropdown();
   updateMiniPlayerVisibility();
+
+  if (!isApplyingHistoryNavigation) {
+    const url = `#/${tabId}`;
+    if (window.location.hash !== url) {
+      history.pushState({ tab: tabId }, '', url);
+    }
+  }
 
   // Stop any playing audio preview on tab switch to prevent ghost audio
   if (activeAudio) {
@@ -461,14 +589,7 @@ function switchTab(tabId) {
 
   if (tabId === 'tracks' || tabId === 'artists' || tabId === 'recent') {
     viewToggle.classList.remove('hidden');
-    // Ensure the toggle buttons show correct active view status
-    document.querySelectorAll('.view-toggle-btn').forEach(btn => {
-      if (btn.getAttribute('data-view') === currentView) {
-        btn.classList.add('active');
-      } else {
-        btn.classList.remove('active');
-      }
-    });
+    updateViewToggleButtons();
   } else {
     viewToggle.classList.add('hidden');
   }
@@ -537,6 +658,7 @@ async function loadDashboard() {
     // Render overview tab first
     renderOverview();
     startNowPlayingPolling();
+    initRouting();
 
   } catch (err) {
     console.error('Error fetching dashboard data:', err);
@@ -716,6 +838,11 @@ function handleNowPlayingVisibilityChange() {
 }
 
 async function pollNowPlaying() {
+  if (!navigator.onLine) {
+    renderNowPlayingOffline();
+    return;
+  }
+
   let response;
   try {
     response = await spotifyFetch('/me/player');
@@ -727,12 +854,19 @@ async function pollNowPlaying() {
       renderNowPlayingNeedsReconnect();
       return;
     }
-    // spotifyFetch already handles 401 (shows login screen); anything else
-    // (network blip, rate limit) just skips this poll — we'll try again shortly.
+    // spotifyFetch already handles 401 (shows login screen). Anything else
+    // (network blip, rate limit) retries silently at first — persistent
+    // failures get a visible error instead of leaving stale/stuck content
+    // with no explanation.
+    nowPlayingConsecutiveFailures++;
+    if (nowPlayingConsecutiveFailures >= NOW_PLAYING_FAILURE_THRESHOLD) {
+      renderNowPlayingError();
+    }
     return;
   }
 
   if (response.status === 204) {
+    nowPlayingConsecutiveFailures = 0;
     renderNowPlayingIdle();
     return;
   }
@@ -741,8 +875,14 @@ async function pollNowPlaying() {
   try {
     data = await response.json();
   } catch (err) {
+    nowPlayingConsecutiveFailures++;
+    if (nowPlayingConsecutiveFailures >= NOW_PLAYING_FAILURE_THRESHOLD) {
+      renderNowPlayingError();
+    }
     return;
   }
+
+  nowPlayingConsecutiveFailures = 0;
 
   if (!data || !data.item) {
     renderNowPlayingIdle();
@@ -756,7 +896,7 @@ function renderNowPlayingIdle() {
   nowPlayingState = { trackId: null, isPlaying: false, progressMs: 0, durationMs: 0, lastSyncedAt: 0, contextUri: null, contextName: null, shuffleState: false };
   document.getElementById('now-playing-status-badge').classList.add('hidden');
   document.getElementById('now-playing-content').innerHTML =
-    '<div class="loading-inline">Nothing playing right now. Start a track on Spotify to see it here.</div>';
+    '<div class="loading-inline">Nothing currently playing. Open Spotify and start playing something — or check that a device is active.</div>';
   hideSidebarMiniPlayer();
 }
 
@@ -764,6 +904,22 @@ function renderNowPlayingNeedsReconnect() {
   document.getElementById('now-playing-status-badge').classList.add('hidden');
   document.getElementById('now-playing-content').innerHTML =
     '<div class="loading-inline">Reconnect your Spotify account to enable Now Playing (needs one extra permission).</div>';
+  hideSidebarMiniPlayer();
+}
+
+function renderNowPlayingOffline() {
+  document.getElementById('now-playing-status-badge').classList.add('hidden');
+  document.getElementById('now-playing-content').innerHTML =
+    '<div class="loading-inline">You&rsquo;re offline. Now Playing will resume once you&rsquo;re back online.</div>';
+  hideSidebarMiniPlayer();
+}
+
+function renderNowPlayingError() {
+  document.getElementById('now-playing-status-badge').classList.add('hidden');
+  document.getElementById('now-playing-content').innerHTML = `
+    <div class="loading-inline" role="alert">Couldn&rsquo;t check playback right now.</div>
+    <button type="button" id="now-playing-retry-btn" class="btn btn-secondary btn-sm margin-top">Retry</button>
+  `;
   hideSidebarMiniPlayer();
 }
 
@@ -1122,12 +1278,12 @@ function renderTopTracks(data) {
         <td>
           <a class="album-link" href="${albumUrl}" target="_blank" rel="noopener noreferrer">${track.album.name}</a>
         </td>
-        <td>
+        <td aria-label="Popularity: ${track.popularity}%">
           <div class="popularity-meter" title="${track.popularity}% popularity">
             <div class="popularity-fill" style="width: ${track.popularity}%"></div>
           </div>
         </td>
-        <td style="text-align: right;">${formatDuration(track.duration_ms)}</td>
+        <td style="text-align: right;" aria-label="Duration: ${formatDuration(track.duration_ms)}">${formatDuration(track.duration_ms)}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -1215,17 +1371,17 @@ function renderArtistsGrid(grid, filteredItems, allItems) {
     div.className = 'track-card'; // Reuse track card class to match layout exactly
     div.innerHTML = `
       <div class="track-card-cover-container">
-        <img class="track-card-cover" src="${photo}" alt="${artist.name}">
+        <img class="track-card-cover" src="${photo}" alt="${escapeHtml(artist.name)}">
         <div class="track-card-play-overlay">
-          <a class="btn-play-preview btn-spotify-link" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="Open in Spotify">
+          <a class="btn-play-preview btn-spotify-link" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="Open in Spotify" aria-label="Open ${escapeHtml(artist.name)} on Spotify">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.565.387-.86.207-2.377-1.454-5.37-1.783-8.894-.982-.336.077-.67-.137-.747-.473-.077-.337.137-.67.473-.748 3.854-.88 7.15-.502 9.822 1.135.296.18.387.565.206.86zm1.223-2.72c-.227.367-.707.487-1.074.26-2.72-1.672-6.866-2.155-10.073-1.182-.413.125-.847-.107-.972-.52-.125-.413.108-.847.52-.972 3.666-1.112 8.225-.573 11.338 1.34.368.226.488.706.26 1.074zm.107-2.825C14.502 8.84 9.17 8.663 6.074 9.603c-.522.158-1.074-.142-1.233-.664-.158-.522.142-1.074.664-1.233 3.563-1.082 9.44-.88 13.34 1.436.47.278.623.882.345 1.352-.278.47-.882.622-1.352.345z"/></svg>
           </a>
         </div>
         <span class="track-card-rank">#${originalRank}</span>
       </div>
       <div class="track-card-details">
-        <a class="track-card-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="${artist.name}">${artist.name}</a>
-        <span class="track-card-artist" style="text-transform: capitalize;">${mainGenre}</span>
+        <a class="track-card-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(artist.name)}">${escapeHtml(artist.name)}</a>
+        <span class="track-card-artist" style="text-transform: capitalize;">${escapeHtml(mainGenre)}</span>
         <span class="track-card-album">${formatFollowers(artist.followers.total)} followers</span>
         <div class="track-card-meta">
           <div class="popularity-info">
@@ -1265,8 +1421,8 @@ function renderArtistsList(tbody, filteredItems, allItems) {
         </div>
       </td>
       <td style="text-transform: capitalize;">${mainGenre}</td>
-      <td>${formatFollowers(artist.followers.total)}</td>
-      <td style="text-align: right;">
+      <td aria-label="Followers: ${formatFollowers(artist.followers.total)}">${formatFollowers(artist.followers.total)}</td>
+      <td style="text-align: right;" aria-label="Popularity: ${artist.popularity}%">
         <div class="popularity-info" style="justify-content: flex-end;">
           <div class="popularity-meter" title="${artist.popularity}% popularity">
             <div class="popularity-fill" style="width: ${artist.popularity}%"></div>
@@ -1415,10 +1571,13 @@ function renderGenreDistributionCard(activeArtists, rangeLabel) {
     const percentage = Math.round((count / totalHits) * 100);
     const bar = document.createElement('div');
     bar.className = 'genre-bar-container interactive-genre-bar';
-    bar.title = `Click to filter artists by ${genre}`;
+    bar.title = `Filter artists by ${genre}`;
+    bar.setAttribute('role', 'button');
+    bar.setAttribute('tabindex', '0');
+    bar.setAttribute('aria-label', `Filter artists by ${genre}, ${count} artist${count > 1 ? 's' : ''}, ${percentage}%`);
     bar.innerHTML = `
       <div class="genre-bar-info">
-        <span class="genre-bar-name">${String(index + 1).padStart(2, '0')} / ${genre}</span>
+        <span class="genre-bar-name">${String(index + 1).padStart(2, '0')} / ${escapeHtml(genre)}</span>
         <span class="genre-bar-percentage">${count} artist${count > 1 ? 's' : ''} · ${percentage}%</span>
       </div>
       <div class="genre-bar-wrapper">
@@ -1427,6 +1586,12 @@ function renderGenreDistributionCard(activeArtists, rangeLabel) {
     `;
     bar.addEventListener('click', () => {
       applyGenreFilterToArtists(genre);
+    });
+    bar.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        applyGenreFilterToArtists(genre);
+      }
     });
     chartContainer.appendChild(bar);
   });
@@ -1671,10 +1836,10 @@ function renderRecentlyPlayed(data) {
         <td>
           <a class="album-link" href="${albumUrl}" target="_blank" rel="noopener noreferrer">${track.album.name}</a>
         </td>
-        <td>
+        <td aria-label="Played: ${formatRelativeTime(item.played_at)}">
           <span class="played-at-time">${formatRelativeTime(item.played_at)}</span>
         </td>
-        <td style="text-align: right;">${formatDuration(track.duration_ms)}</td>
+        <td style="text-align: right;" aria-label="Duration: ${formatDuration(track.duration_ms)}">${formatDuration(track.duration_ms)}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -1709,19 +1874,20 @@ function renderTracksGrid(container, items, type) {
     const btnIconClass = isPlayingThis ? 'play-icon hidden' : 'play-icon';
     const btnPauseClass = isPlayingThis ? 'pause-icon' : 'pause-icon hidden';
     
-    const playButton = track.preview_url 
-      ? `<button class="btn-play-preview" data-preview-url="${track.preview_url}" title="Play Preview">
+    const previewLabel = isPlayingThis ? `Pause preview of ${escapeHtml(track.name)}` : `Play preview of ${escapeHtml(track.name)}`;
+    const playButton = track.preview_url
+      ? `<button type="button" class="btn-play-preview" data-preview-url="${track.preview_url}" data-track-name="${escapeHtml(track.name)}" title="Play preview" aria-label="${previewLabel}" aria-pressed="${isPlayingThis}">
            <svg class="${btnIconClass}" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
            <svg class="${btnPauseClass}" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
          </button>`
-      : `<a class="btn-play-preview btn-spotify-link" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="Open in Spotify">
+      : `<a class="btn-play-preview btn-spotify-link" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="Open in Spotify" aria-label="Open ${escapeHtml(track.name)} on Spotify">
            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.565.387-.86.207-2.377-1.454-5.37-1.783-8.894-.982-.336.077-.67-.137-.747-.473-.077-.337.137-.67.473-.748 3.854-.88 7.15-.502 9.822 1.135.296.18.387.565.206.86zm1.223-2.72c-.227.367-.707.487-1.074.26-2.72-1.672-6.866-2.155-10.073-1.182-.413.125-.847-.107-.972-.52-.125-.413.108-.847.52-.972 3.666-1.112 8.225-.573 11.338 1.34.368.226.488.706.26 1.074zm.107-2.825C14.502 8.84 9.17 8.663 6.074 9.603c-.522.158-1.074-.142-1.233-.664-.158-.522.142-1.074.664-1.233 3.563-1.082 9.44-.88 13.34 1.436.47.278.623.882.345 1.352-.278.47-.882.622-1.352.345z"/></svg>
          </a>`;
- 
-    const subMeta = playedAt 
+
+    const subMeta = playedAt
       ? `<span class="played-at-time" style="font-size: 0.8rem; color: var(--muted);">${formatRelativeTime(playedAt)}</span>`
       : `<span class="track-card-duration">${formatDuration(track.duration_ms)}</span>`;
- 
+
     const originalRank = type === 'tracks' && appData.topTracks[currentRange]
       ? appData.topTracks[currentRange].items.findIndex(t => t.id === track.id) + 1
       : (index + 1);
@@ -1730,7 +1896,7 @@ function renderTracksGrid(container, items, type) {
     div.className = cardClass;
     div.innerHTML = `
       <div class="track-card-cover-container">
-        <img class="track-card-cover" src="${cover}" alt="${track.name}">
+        <img class="track-card-cover" src="${cover}" alt="${escapeHtml(track.name)}">
         <div class="track-card-play-overlay">
           ${playButton}
         </div>
@@ -1742,9 +1908,9 @@ function renderTracksGrid(container, items, type) {
         </div>
       </div>
       <div class="track-card-details">
-        <a class="track-card-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="${track.name}">${track.name}</a>
-        <span class="track-card-artist" title="${artistsName}">${artistsName}</span>
-        <span class="track-card-album" title="${track.album.name}">${track.album.name}</span>
+        <a class="track-card-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(track.name)}">${escapeHtml(track.name)}</a>
+        <span class="track-card-artist" title="${escapeHtml(artistsName)}">${escapeHtml(artistsName)}</span>
+        <span class="track-card-album" title="${escapeHtml(track.album.name)}">${escapeHtml(track.album.name)}</span>
         <div class="track-card-meta">
           <div class="popularity-info">
             <div class="popularity-meter" style="width: 50px; margin-right: 4px;" title="${track.popularity}% popularity">
@@ -1776,6 +1942,7 @@ function toggleAudioPreview(previewUrl, button, card) {
   const playIcon = button.querySelector('.play-icon');
   const pauseIcon = button.querySelector('.pause-icon');
   const eq = card.querySelector('.playing-equalizer');
+  const trackName = button.dataset.trackName || '';
 
   // Case 1: Clicked on a currently playing preview -> Pause it
   if (activeAudio && activeAudio.src === previewUrl) {
@@ -1785,12 +1952,16 @@ function toggleAudioPreview(previewUrl, button, card) {
       pauseIcon.classList.remove('hidden');
       card.classList.add('playing');
       if (eq) eq.classList.remove('hidden');
+      button.setAttribute('aria-label', `Pause preview of ${trackName}`);
+      button.setAttribute('aria-pressed', 'true');
     } else {
       activeAudio.pause();
       playIcon.classList.remove('hidden');
       pauseIcon.classList.add('hidden');
       card.classList.remove('playing');
       if (eq) eq.classList.add('hidden');
+      button.setAttribute('aria-label', `Play preview of ${trackName}`);
+      button.setAttribute('aria-pressed', 'false');
     }
     return;
   }
@@ -1803,6 +1974,9 @@ function toggleAudioPreview(previewUrl, button, card) {
       const activePauseIcon = activePlayButton.querySelector('.pause-icon');
       if (activePlayIcon) activePlayIcon.classList.remove('hidden');
       if (activePauseIcon) activePauseIcon.classList.add('hidden');
+      const activeTrackName = activePlayButton.dataset.trackName || '';
+      activePlayButton.setAttribute('aria-label', `Play preview of ${activeTrackName}`);
+      activePlayButton.setAttribute('aria-pressed', 'false');
     }
     if (activeTrackCard) {
       activeTrackCard.classList.remove('playing');
@@ -1822,6 +1996,8 @@ function toggleAudioPreview(previewUrl, button, card) {
       pauseIcon.classList.remove('hidden');
       card.classList.add('playing');
       if (eq) eq.classList.remove('hidden');
+      button.setAttribute('aria-label', `Pause preview of ${trackName}`);
+      button.setAttribute('aria-pressed', 'true');
     })
     .catch(err => {
       console.error("Failed to play audio preview:", err);
@@ -1834,6 +2010,8 @@ function toggleAudioPreview(previewUrl, button, card) {
     pauseIcon.classList.add('hidden');
     card.classList.remove('playing');
     if (eq) eq.classList.add('hidden');
+    button.setAttribute('aria-label', `Play preview of ${trackName}`);
+    button.setAttribute('aria-pressed', 'false');
     activeAudio = null;
     activePlayButton = null;
     activeTrackCard = null;
@@ -1923,16 +2101,29 @@ function renderHourlyActivityChart(recent) {
 
   svgContent += `</svg>`;
   container.innerHTML = svgContent;
+  container.setAttribute('role', 'group');
+  container.setAttribute('aria-label', 'Hourly listening activity, bar chart');
 
-  attachChartTooltip(container, container.querySelectorAll('.hourly-bar'), (bar) => {
+  const getBarLabel = (bar) => {
     const hour = bar.getAttribute('data-hour');
     const count = bar.getAttribute('data-count');
     return `${String(hour).padStart(2, '0')}:00 — ${count} play${count !== '1' ? 's' : ''}`;
-  });
+  };
+  attachChartTooltip(container, container.querySelectorAll('.hourly-bar'), getBarLabel);
+
+  const altList = Array.from(container.querySelectorAll('.hourly-bar')).map((bar) => `<li>${escapeHtml(getBarLabel(bar))}</li>`).join('');
+  container.insertAdjacentHTML('beforeend', `<ul class="sr-only">${altList}</ul>`);
 }
 
-// Wires up a floating tooltip that follows the mouse over a set of SVG shapes.
-// getLabel(el) returns the text to show for the hovered element.
+// Wires up a floating tooltip that follows the mouse over a set of SVG
+// shapes, and makes the same info reachable without a mouse: every shape
+// gets an aria-label (so a screen reader announces it on its own), plus
+// keyboard focus support so the tooltip also shows on focus. The marks
+// share one "roving tabindex" stop — Tab reaches the group once, then
+// Arrow keys/Home/End move between individual marks — rather than each
+// mark being its own Tab stop, which would make a 50-point chart take 50
+// presses of Tab to get past.
+// getLabel(el) returns the text to show for a given mark.
 function attachChartTooltip(container, elements, getLabel) {
   let tooltip = container.querySelector('.chart-tooltip');
   if (!tooltip) {
@@ -1940,19 +2131,48 @@ function attachChartTooltip(container, elements, getLabel) {
     tooltip.className = 'chart-tooltip hidden';
     container.appendChild(tooltip);
   }
+  if (elements.length === 0) return;
 
-  elements.forEach((el) => {
-    el.addEventListener('mouseenter', () => {
-      tooltip.textContent = getLabel(el);
-      tooltip.classList.remove('hidden');
+  const positionAt = (x, y) => {
+    const rect = container.getBoundingClientRect();
+    tooltip.style.left = `${x - rect.left}px`;
+    tooltip.style.top = `${y - rect.top}px`;
+  };
+  const show = (el) => {
+    tooltip.textContent = getLabel(el);
+    tooltip.classList.remove('hidden');
+  };
+  const hide = () => tooltip.classList.add('hidden');
+
+  elements.forEach((el, i) => {
+    el.setAttribute('tabindex', i === 0 ? '0' : '-1');
+    if (!el.hasAttribute('role')) el.setAttribute('role', 'img');
+    el.setAttribute('aria-label', getLabel(el));
+
+    el.addEventListener('mouseenter', () => show(el));
+    el.addEventListener('mousemove', (e) => positionAt(e.clientX, e.clientY));
+    el.addEventListener('mouseleave', hide);
+
+    el.addEventListener('focus', () => {
+      const r = el.getBoundingClientRect();
+      positionAt(r.left + r.width / 2, r.top);
+      show(el);
     });
-    el.addEventListener('mousemove', (e) => {
-      const rect = container.getBoundingClientRect();
-      tooltip.style.left = `${e.clientX - rect.left}px`;
-      tooltip.style.top = `${e.clientY - rect.top}px`;
-    });
-    el.addEventListener('mouseleave', () => {
-      tooltip.classList.add('hidden');
+    el.addEventListener('blur', hide);
+
+    el.addEventListener('keydown', (e) => {
+      let nextIndex = null;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextIndex = Math.min(i + 1, elements.length - 1);
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') nextIndex = Math.max(i - 1, 0);
+      else if (e.key === 'Home') nextIndex = 0;
+      else if (e.key === 'End') nextIndex = elements.length - 1;
+      if (nextIndex !== null && nextIndex !== i) {
+        e.preventDefault();
+        el.setAttribute('tabindex', '-1');
+        const next = elements[nextIndex];
+        next.setAttribute('tabindex', '0');
+        next.focus();
+      }
     });
   });
 }
@@ -2024,12 +2244,18 @@ function renderDayOfWeekActivityChart(recent) {
 
   svgContent += `</svg>`;
   container.innerHTML = svgContent;
+  container.setAttribute('role', 'group');
+  container.setAttribute('aria-label', 'Day-of-week listening activity, bar chart');
 
-  attachChartTooltip(container, container.querySelectorAll('.day-of-week-bar'), (bar) => {
+  const getBarLabel = (bar) => {
     const day = bar.getAttribute('data-day');
     const count = bar.getAttribute('data-count');
     return `${day} — ${count} play${count !== '1' ? 's' : ''}`;
-  });
+  };
+  attachChartTooltip(container, container.querySelectorAll('.day-of-week-bar'), getBarLabel);
+
+  const altList = Array.from(container.querySelectorAll('.day-of-week-bar')).map((bar) => `<li>${escapeHtml(getBarLabel(bar))}</li>`).join('');
+  container.insertAdjacentHTML('beforeend', `<ul class="sr-only">${altList}</ul>`);
 }
 
 // RENDER POPULARITY DISTRIBUTION CHART
@@ -2267,8 +2493,11 @@ function renderTopContributingArtists(topTracks) {
 // SHARED SCATTER/QUADRANT RENDERER
 // points: [{ x, y, tooltip }] with x/y normalized to [0, 1] — x=0 left, x=1
 // right, y=0 top, y=1 bottom. Callers own the meaning of each axis and must
-// normalize their own data into that space before calling this.
-function renderQuadrantScatter(container, points, labels) {
+// normalize their own data into that space before calling this. chartLabel
+// names the chart for screen reader users (the group role + a sr-only list
+// mirroring each dot's tooltip text, since the SVG itself conveys nothing
+// on its own without sight or a mouse).
+function renderQuadrantScatter(container, points, labels, chartLabel) {
   const width = 560;
   const height = 320;
   const padding = 36;
@@ -2307,10 +2536,18 @@ function renderQuadrantScatter(container, points, labels) {
 
   svg += `</svg>`;
   container.innerHTML = svg;
+  container.setAttribute('role', 'group');
+  if (chartLabel) container.setAttribute('aria-label', chartLabel);
 
   attachChartTooltip(container, container.querySelectorAll('.quadrant-dot'), (dot) => {
     return points[Number(dot.getAttribute('data-index'))].tooltip;
   });
+
+  // Concise text alternative: the same per-point detail as the tooltips,
+  // as a list a screen reader can read without needing to see or hover
+  // the chart at all.
+  const altList = points.map((p) => `<li>${escapeHtml(p.tooltip)}</li>`).join('');
+  container.insertAdjacentHTML('beforeend', `<ul class="sr-only">${altList}</ul>`);
 }
 
 const RANK_QUADRANT_LABELS = {
@@ -2341,7 +2578,7 @@ function renderPopularityRankQuadrant(topTracks) {
     return { x: track.popularity / 100, y, tooltip: `#${rank} ${track.name} — ${track.popularity}% popularity` };
   });
 
-  renderQuadrantScatter(container, points, RANK_QUADRANT_LABELS);
+  renderQuadrantScatter(container, points, RANK_QUADRANT_LABELS, 'Tracks: popularity versus your rank, scatter chart');
 }
 
 // Same idea as the track quadrant above, but for your top artists.
@@ -2362,7 +2599,7 @@ function renderArtistRankQuadrant(topArtists) {
     return { x: artist.popularity / 100, y, tooltip: `#${rank} ${artist.name} — ${artist.popularity}% popularity` };
   });
 
-  renderQuadrantScatter(container, points, RANK_QUADRANT_LABELS);
+  renderQuadrantScatter(container, points, RANK_QUADRANT_LABELS, 'Artists: popularity versus your rank, scatter chart');
 }
 
 // X = popularity. Y = track duration (longer plots higher) — are your
@@ -2395,7 +2632,7 @@ function renderDurationPopularityQuadrant(topTracks) {
     bottomRight: 'MAINSTREAM QUICK HITS',
     xAxis: 'POPULARITY →',
     yAxis: 'LONGER DURATION →'
-  });
+  }, 'Tracks: duration versus popularity, scatter chart');
 }
 
 // X = popularity. Y = follower count on a log scale (spans orders of
@@ -2431,7 +2668,7 @@ function renderFollowersPopularityQuadrant(topArtists) {
     bottomRight: 'RISING BUZZ',
     xAxis: 'POPULARITY →',
     yAxis: 'MORE FOLLOWERS →'
-  });
+  }, 'Artists: followers versus popularity, scatter chart');
 }
 
 // --- GLOBAL SEARCH ---
@@ -2838,11 +3075,17 @@ function renderSpotifySearchResults() {
 
   const hasLibraryResults = !document.getElementById('search-library-section').classList.contains('hidden');
   const noResultsEl = document.getElementById('search-no-results');
+  const resultsStatusEl = document.getElementById('search-results-status');
   if (!anyLiveResults && !hasLibraryResults && searchQuery.length >= SEARCH_MIN_CHARS) {
     noResultsEl.textContent = SEARCH_NO_RESULTS_TEXT;
     noResultsEl.classList.remove('hidden');
+    if (resultsStatusEl) resultsStatusEl.textContent = '';
   } else {
     noResultsEl.classList.add('hidden');
+    if (anyLiveResults && resultsStatusEl) {
+      const total = searchLiveResults.tracks.length + searchLiveResults.artists.length + searchLiveResults.albums.length + searchLiveResults.playlists.length;
+      resultsStatusEl.textContent = `${total} result${total !== 1 ? 's' : ''} found.`;
+    }
   }
 
   updateSearchVisibility();

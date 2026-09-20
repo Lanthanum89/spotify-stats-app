@@ -43,6 +43,20 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 2px; }
 
 .hidden { display: none !important; }
+/* Visually hides content while keeping it in the accessibility tree —
+   e.g. a text/tabular alternative for a chart that's otherwise only
+   presented as an SVG. */
+.sr-only {
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
 .margin-top { margin-top: 24px; }
 
 /* Ambient background — soft blobs of colour drifting slowly past each
@@ -244,8 +258,29 @@ body {
 .sidebar:hover { background: var(--surface); }
 .sidebar-brand { align-items: center; display: flex; gap: 11px; margin: 0 8px 20px; pointer-events: none; }
 .brand-logo svg { fill: var(--accent); height: 25px; width: 25px; }
-.brand-text { color: var(--text); font: 600 1.2rem var(--mono); letter-spacing: -0.04em; white-space: nowrap; }
+.brand-text { color: var(--text); flex: 1; font: 600 1.2rem var(--mono); letter-spacing: -0.04em; white-space: nowrap; }
 .brand-text::after { color: var(--accent); content: "_"; }
+/* Explicit, keyboard-operable collapse/expand control — the whole rail is
+   also clickable for mouse users (see the sidebar click handler), but that
+   alone isn't reachable by keyboard. pointer-events is re-enabled here
+   since .sidebar-brand turns it off for everything else. */
+.sidebar-collapse-btn {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--dim);
+  cursor: pointer;
+  display: flex;
+  flex-shrink: 0;
+  justify-content: center;
+  padding: 6px;
+  pointer-events: auto;
+  transition: var(--transition);
+}
+.sidebar-collapse-btn:hover { border-color: var(--line-strong); color: var(--accent-bright); }
+.sidebar-collapse-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sidebar.collapsed .sidebar-collapse-btn svg { transform: rotate(180deg); }
 
 .nav-menu { display: flex; flex: 1; flex-direction: column; gap: 5px; }
 .nav-item {
@@ -439,13 +474,13 @@ body {
 .data-table td { font-size: 0.9rem; }
 .data-table tbody tr:hover { background: rgba(170, 150, 216, 0.035); }
 .data-table td:first-child, .data-table td:last-child { color: var(--accent); font-family: var(--mono); }
-.track-row-cell { align-items: center; display: flex; gap: 12px; }
-.track-row-cover { border-radius: 3px; height: 42px; object-fit: cover; width: 42px; }
-.track-row-details { display: flex; flex-direction: column; }
+.track-row-cell { align-items: center; display: flex; gap: 12px; min-width: 0; }
+.track-row-cover { border-radius: 3px; flex-shrink: 0; height: 42px; object-fit: cover; width: 42px; }
+.track-row-details { display: flex; flex-direction: column; min-width: 0; }
 .track-row-title, .album-link { color: var(--text); text-decoration: none; }
-.track-row-title { font-weight: 600; }
+.track-row-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track-row-title:hover, .album-link:hover { color: var(--accent-bright); }
-.track-row-artist, .album-link { color: var(--muted); font-size: 0.8rem; margin-top: 3px; }
+.track-row-artist, .album-link { color: var(--muted); font-size: 0.8rem; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .popularity-meter { background: var(--line); border-radius: 2px; height: 5px; width: 76px; }
 .popularity-fill { background: var(--accent); height: 100%; }
 
@@ -613,6 +648,45 @@ body {
   .filter-bar { flex-wrap: wrap; gap: 12px; }
   .search-input-wrapper { max-width: none; width: 100%; }
   .view-toggle-btn, .time-filter-btn { padding: 10px 12px; }
+
+  /* List view on mobile: a wide, horizontally-scrolling <table> isn't a
+     usable primary layout on a phone, so break the table out of table
+     layout into stacked flex rows instead — same data (rank, cover,
+     title/artist, one secondary stat, duration), no side-scrolling. The
+     header row is dropped since each row now carries its own labels
+     via context (cover+title reads as "track", the trailing number as
+     duration) rather than a column header. */
+  .table-container { overflow-x: visible; }
+  .data-table thead { display: none; }
+  .data-table, .data-table tbody { display: block; width: 100%; }
+  .data-table tr {
+    align-items: center;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    gap: 10px;
+    padding: 10px 0;
+    width: 100%;
+  }
+  .data-table td { border: 0; padding: 0; }
+  .data-table td:first-child {
+    color: var(--dim);
+    flex: 0 0 auto;
+    font: 500 0.8rem var(--mono);
+    text-align: center;
+    width: 20px;
+  }
+  .data-table td:nth-child(2) { flex: 1 1 auto; min-width: 0; }
+  .data-table td:nth-child(3) { display: none; }
+  .data-table td:nth-child(4) { flex: 0 0 auto; }
+  .data-table td:last-child {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+    text-align: right;
+  }
+  /* Popularity meter (bar + %) is the widest of the trailing "4th column"
+     stats and doesn't need its own visible label on a compact row. */
+  .data-table td:nth-child(4) .popularity-info { flex-direction: column; align-items: flex-end; gap: 2px; }
+  .data-table td:nth-child(4) .popularity-meter { width: 48px; }
 }
 
 @media (max-width: 560px) {
@@ -626,6 +700,39 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   html, .main-content { scroll-behavior: auto; }
+}
+
+/* TOUCH TARGETS — bump the tappable area of icon-only and playback
+   controls to ~44px (the standard minimum) on touch input, without
+   changing the icons' visual size. Keyed off (pointer: coarse) rather
+   than a viewport-width breakpoint, since it's the actual input method
+   that matters (e.g. a touchscreen laptop at desktop width still needs
+   this; a mouse-driven narrow window doesn't). */
+@media (pointer: coarse) {
+  .btn-logout,
+  .mobile-menu-toggle,
+  .now-playing-control-btn,
+  .mini-player-btn,
+  .search-clear-btn,
+  .sidebar-collapse-btn {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .now-playing-play-btn,
+  .mini-player-play-btn {
+    height: 44px;
+    width: 44px;
+  }
+  .view-toggle-btn,
+  .time-filter-btn,
+  .top50-range-btn,
+  .analysis-jump-link,
+  .search-type-btn {
+    min-height: 44px;
+  }
 }
 
 /* NEW INTERACTIVE DASHBOARD AND CARD STYLES */
@@ -1021,6 +1128,10 @@ body {
 .interactive-genre-bar:hover .genre-bar-fill {
   background: var(--accent-bright);
 }
+.interactive-genre-bar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .btn-spotify-link {
   color: var(--accent) !important;
   text-decoration: none;
@@ -1049,10 +1160,19 @@ body {
 .quadrant-dot {
   transition: r 0.15s ease, opacity 0.15s ease;
 }
-.quadrant-dot:hover {
+.quadrant-dot:hover,
+.quadrant-dot:focus-visible {
   r: 7;
   opacity: 1;
   fill: var(--accent-bright);
+}
+/* Focus rings on SVG shapes: outline doesn't reliably render on non-HTML
+   elements across browsers, so draw one explicitly instead. */
+.hourly-bar:focus-visible,
+.day-of-week-bar:focus-visible,
+.quadrant-dot:focus-visible {
+  stroke: var(--accent-bright);
+  stroke-width: 2px;
 }
 
 /* NOW PLAYING */
