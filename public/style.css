@@ -729,7 +729,6 @@ body {
   .view-toggle-btn,
   .time-filter-btn,
   .top50-range-btn,
-  .analysis-jump-link,
   .search-type-btn {
     min-height: 44px;
   }
@@ -759,56 +758,6 @@ body {
 }
 .analysis-range-row .analysis-section-title { margin: 0; }
 .genre-metrics + .grid-layout { margin-top: 18px; }
-
-/* IN-PAGE ANALYSIS NAVIGATION — jumps between the Overview / Habits /
-   Taste / Correlations groups. Sticky within the scrolling .main-content.
-   Split into two elements on purpose: the outer <nav> only sticks and
-   paints a solid background, the inner .analysis-jump-nav-scroll only
-   scrolls horizontally. Putting position:sticky and overflow-x on the
-   *same* element is a known source of incorrect sticky-offset
-   calculations in Chromium (the element's own scrollport can get
-   confused with its sticky containing block), which showed up as the bar
-   painting mid-scroll at a stale position and cutting through the
-   paragraph below it. Two elements, two jobs, avoids that entirely.
-   scroll-margin-top on each group keeps the jumped-to heading clear of
-   the bar. */
-.analysis-jump-nav {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  padding: 10px 0;
-  margin-bottom: 20px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
-}
-.analysis-jump-nav-scroll {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 6px;
-  overflow-x: auto;
-}
-.analysis-jump-link {
-  color: var(--muted);
-  flex-shrink: 0;
-  font: 500 0.78rem var(--mono);
-  letter-spacing: 0.02em;
-  padding: 7px 13px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  text-decoration: none;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-.analysis-jump-link:hover {
-  color: var(--accent-bright);
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-.analysis-jump-link:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.analysis-group { scroll-margin-top: 76px; }
 
 /* KEY INSIGHTS — a handful of short, data-derived takeaways up top, so the
    Overview group gives an at-a-glance read before the detailed cards. */
