@@ -349,34 +349,25 @@ function setupEventListeners() {
     });
   });
 
-  // Artist search input field
+  // Artist search input field — the clear button mirrors the input's own
+  // text, so there's nothing else to keep in sync (no separate "Filter: x"
+  // badge to duplicate what's already visible in the field).
   const searchInput = document.getElementById('artist-search-input');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
       artistFilter = e.target.value;
-      
-      // Toggle badge visibility based on filter presence
-      const filterBadge = document.getElementById('artist-active-filter');
-      const badgeText = document.getElementById('filter-badge-text');
-      
-      if (artistFilter) {
-        filterBadge.classList.remove('hidden');
-        badgeText.textContent = artistFilter;
-      } else {
-        filterBadge.classList.add('hidden');
-      }
-      
+      document.getElementById('btn-clear-artist-filter').classList.toggle('hidden', !artistFilter);
       renderTopArtists(appData.topArtists[currentRange] || appData.topArtists['medium_term']);
     });
   }
 
-  // Clear artist filter badge button
+  // Clear artist filter button
   const clearFilterBtn = document.getElementById('btn-clear-artist-filter');
   if (clearFilterBtn) {
     clearFilterBtn.addEventListener('click', () => {
       if (searchInput) searchInput.value = '';
       artistFilter = '';
-      document.getElementById('artist-active-filter').classList.add('hidden');
+      clearFilterBtn.classList.add('hidden');
       renderTopArtists(appData.topArtists[currentRange] || appData.topArtists['medium_term']);
     });
   }
@@ -386,17 +377,7 @@ function setupEventListeners() {
   if (trackSearchInput) {
     trackSearchInput.addEventListener('input', (e) => {
       trackFilter = e.target.value;
-      
-      const filterBadge = document.getElementById('track-active-filter');
-      const badgeText = document.getElementById('track-filter-badge-text');
-      
-      if (trackFilter) {
-        filterBadge.classList.remove('hidden');
-        badgeText.textContent = trackFilter;
-      } else {
-        filterBadge.classList.add('hidden');
-      }
-      
+      document.getElementById('btn-clear-track-filter').classList.toggle('hidden', !trackFilter);
       renderTopTracks(appData.topTracks[currentRange] || appData.topTracks['medium_term']);
     });
   }
@@ -404,13 +385,13 @@ function setupEventListeners() {
   // Global search tab (search input + type filter chips)
   initSearchTab();
 
-  // Clear track filter badge button
+  // Clear track filter button
   const clearTrackFilterBtn = document.getElementById('btn-clear-track-filter');
   if (clearTrackFilterBtn) {
     clearTrackFilterBtn.addEventListener('click', () => {
       if (trackSearchInput) trackSearchInput.value = '';
       trackFilter = '';
-      document.getElementById('track-active-filter').classList.add('hidden');
+      clearTrackFilterBtn.classList.add('hidden');
       renderTopTracks(appData.topTracks[currentRange] || appData.topTracks['medium_term']);
     });
   }
@@ -492,16 +473,17 @@ function switchTab(tabId) {
     viewToggle.classList.add('hidden');
   }
 
-  // Update header title
+  // Update header title — human-facing labels (matching the sidebar nav
+  // text), not the old terminal-identifier style ("now-playing", "top-tracks").
   const titles = {
-    overview: 'now-playing',
-    search: 'search',
-    tracks: 'top-tracks',
-    artists: 'top-artists',
-    analysis: 'analysis',
-    recent: 'recent'
+    overview: 'Now Playing',
+    search: 'Search',
+    tracks: 'Top Tracks',
+    artists: 'Top Artists',
+    analysis: 'Analysis',
+    recent: 'Recent'
   };
-  document.getElementById('current-tab-title').textContent = titles[tabId] || 'dashboard';
+  document.getElementById('current-tab-title').textContent = titles[tabId] || 'Dashboard';
 
   // Toggle tab panels
   document.querySelectorAll('.tab-pane').forEach(pane => {
@@ -1521,6 +1503,68 @@ function renderTop50Section(range) {
   renderArtistRankQuadrant(activeArtists);
   renderDurationPopularityQuadrant(activeTracks);
   renderFollowersPopularityQuadrant(activeArtists);
+
+  renderKeyInsights(activeArtists, activeTracks, rangeLabel);
+}
+
+// KEY INSIGHTS — a handful of short, plain-language takeaways at the top of
+// the Analysis page, derived entirely from data already loaded for the
+// Last 50 Streams and Your Top 50 sections (no extra API calls).
+function renderKeyInsights(activeArtists, activeTracks, rangeLabel) {
+  const list = document.getElementById('key-insights-list');
+  if (!list) return;
+
+  const insights = [];
+  const recentItems = appData.recentlyPlayed?.items || [];
+
+  if (recentItems.length > 0) {
+    const recentDurationMs = recentItems.reduce((total, item) => total + item.track.duration_ms, 0);
+    insights.push(`You've logged <strong>${recentItems.length}</strong> plays across <strong>${formatHours(recentDurationMs)}</strong> in your last 50 streams.`);
+
+    const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const dayCounts = Array(7).fill(0);
+    recentItems.forEach((item) => {
+      const jsDay = new Date(item.played_at).getDay();
+      dayCounts[(jsDay + 6) % 7]++;
+    });
+    const peakDayIndex = dayCounts.indexOf(Math.max(...dayCounts));
+    if (dayCounts[peakDayIndex] > 0) {
+      insights.push(`You're most active on <strong>${dayLabels[peakDayIndex]}s</strong>, based on your recent streams.`);
+    }
+  }
+
+  if (activeArtists && activeArtists.items && activeArtists.items.length > 0) {
+    const genreCounts = {};
+    activeArtists.items.forEach((artist) => {
+      artist.genres.forEach((genre) => { genreCounts[genre] = (genreCounts[genre] || 0) + 1; });
+    });
+    const sortedGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]);
+    const totalHits = Object.values(genreCounts).reduce((a, b) => a + b, 0);
+    if (sortedGenres.length > 0) {
+      const [topGenre, topCount] = sortedGenres[0];
+      const share = Math.round((topCount / totalHits) * 100);
+      insights.push(`Your top genre is <strong>${escapeHtml(topGenre)}</strong>, making up <strong>${share}%</strong> of your top artists (${rangeLabel}).`);
+    }
+  }
+
+  if (activeTracks && activeTracks.items && activeTracks.items.length > 0) {
+    const artistCounts = {};
+    activeTracks.items.forEach((track) => {
+      track.artists.forEach((artist) => { artistCounts[artist.name] = (artistCounts[artist.name] || 0) + 1; });
+    });
+    const sortedArtists = Object.entries(artistCounts).sort((a, b) => b[1] - a[1]);
+    if (sortedArtists.length > 0 && sortedArtists[0][1] > 1) {
+      const [name, count] = sortedArtists[0];
+      insights.push(`<strong>${escapeHtml(name)}</strong> shows up on <strong>${count}</strong> of your top tracks (${rangeLabel}) — more than any other artist.`);
+    }
+  }
+
+  if (insights.length === 0) {
+    list.innerHTML = '<li class="key-insight-item loading-inline">Not enough listening data yet for insights — keep listening!</li>';
+    return;
+  }
+
+  list.innerHTML = insights.map((text) => `<li class="key-insight-item">${text}</li>`).join('');
 }
 
 function renderGenreDonut(sortedGenres, totalHits) {
@@ -1806,14 +1850,10 @@ function applyGenreFilterToArtists(genre) {
   artistFilter = genre;
   const searchInput = document.getElementById('artist-search-input');
   if (searchInput) searchInput.value = genre;
-  
-  const filterBadge = document.getElementById('artist-active-filter');
-  const badgeText = document.getElementById('filter-badge-text');
-  if (filterBadge && badgeText) {
-    filterBadge.classList.remove('hidden');
-    badgeText.textContent = genre;
-  }
-  
+
+  const clearFilterBtn = document.getElementById('btn-clear-artist-filter');
+  if (clearFilterBtn) clearFilterBtn.classList.toggle('hidden', !genre);
+
   switchTab('artists');
 }
 

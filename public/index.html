@@ -175,7 +175,7 @@
 
       <!-- TOP NAVIGATION BAR -->
       <header class="content-header">
-        <h2 id="current-tab-title">now-playing</h2>
+        <h2 id="current-tab-title">Now Playing</h2>
         
         <div class="header-controls">
           <!-- PERSISTENT HEADER SEARCH (all tabs except Search itself, which has its own) -->
@@ -319,11 +319,8 @@
         <div class="filter-bar panel">
           <div class="search-input-wrapper">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input type="text" id="track-search-input" placeholder="Search songs, artists or albums...">
-          </div>
-          <div id="track-active-filter" class="active-filter-badge hidden">
-            <span>Filter: <strong id="track-filter-badge-text">-</strong></span>
-            <button id="btn-clear-track-filter" title="Clear filter">
+            <input type="text" id="track-search-input" class="has-clear" placeholder="Search songs, artists or albums...">
+            <button type="button" id="btn-clear-track-filter" class="search-clear-btn hidden" aria-label="Clear track filter" title="Clear filter">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
           </div>
@@ -356,11 +353,8 @@
         <div class="filter-bar panel">
           <div class="search-input-wrapper">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input type="text" id="artist-search-input" placeholder="Search artists or genres...">
-          </div>
-          <div id="artist-active-filter" class="active-filter-badge hidden">
-            <span>Filter: <strong id="filter-badge-text">-</strong></span>
-            <button id="btn-clear-artist-filter" title="Clear filter">
+            <input type="text" id="artist-search-input" class="has-clear" placeholder="Search artists or genres...">
+            <button type="button" id="btn-clear-artist-filter" class="search-clear-btn hidden" aria-label="Clear artist filter" title="Clear filter">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
           </div>
@@ -392,69 +386,99 @@
 
       <!-- TAB 4: ANALYSIS -->
       <section id="tab-analysis" class="tab-pane">
-        <p class="section-desc">
-          The metrics and charts in the <strong>Last 50 Streams</strong> section below always reflect exactly that — Spotify's
-          API doesn't expose more play history than that. Everything under the range selector further down uses your real
-          top-tracks/top-artists history instead, computed by Spotify over whichever range you pick.
-        </p>
+        <!-- IN-PAGE NAVIGATION — jumps between the logical groups below.
+             Sticky within the scrolling main content; each group has
+             scroll-margin-top so this bar never covers its heading. -->
+        <nav class="analysis-jump-nav" id="analysis-jump-nav" aria-label="Jump to Analysis section">
+          <a href="#analysis-group-overview" class="analysis-jump-link">Overview</a>
+          <a href="#analysis-group-habits" class="analysis-jump-link">Listening Habits</a>
+          <a href="#analysis-group-taste" class="analysis-jump-link">Taste</a>
+          <a href="#analysis-group-correlations" class="analysis-jump-link">Correlations</a>
+        </nav>
 
-        <span class="analysis-section-title">Last 50 Streams</span>
-        <div class="genre-metrics">
-          <div class="metric-block">
-            <span class="metric-index">01</span>
-            <div>
-              <span id="genre-metric-plays" class="metric-value">0</span>
-              <span class="metric-label">Plays (last 50)</span>
+        <div class="analysis-group" id="analysis-group-overview">
+          <span class="analysis-section-title">Overview</span>
+          <p class="section-desc">
+            The metrics and charts in the <strong>Last 50 Streams</strong> section below always reflect exactly that — Spotify's
+            API doesn't expose more play history than that. Everything under the range selector further down uses your real
+            top-tracks/top-artists history instead, computed by Spotify over whichever range you pick.
+          </p>
+
+          <div class="panel" id="analysis-key-insights">
+            <div class="panel-heading">
+              <div>
+                <span class="panel-kicker">ANALYSIS / SUMMARY</span>
+                <h3>Key Insights</h3>
+              </div>
             </div>
+            <ul id="key-insights-list" class="key-insights-list margin-top">
+              <li class="key-insight-item loading-inline">Crunching your listening data...</li>
+            </ul>
           </div>
-          <div class="metric-block">
-            <span class="metric-index">02</span>
-            <div>
-              <span id="genre-metric-hours" class="metric-value">0h</span>
-              <span class="metric-label">Hours (last 50)</span>
+
+          <span class="analysis-section-title">Last 50 Streams</span>
+          <div class="genre-metrics">
+            <div class="metric-block">
+              <span class="metric-index">01</span>
+              <div>
+                <span id="genre-metric-plays" class="metric-value">0</span>
+                <span class="metric-label">Plays (last 50)</span>
+              </div>
             </div>
-          </div>
-          <div class="metric-block">
-            <span class="metric-index">03</span>
-            <div>
-              <span id="genre-metric-average" class="metric-value">0:00</span>
-              <span class="metric-label">Avg. track (last 50)</span>
+            <div class="metric-block">
+              <span class="metric-index">02</span>
+              <div>
+                <span id="genre-metric-hours" class="metric-value">0h</span>
+                <span class="metric-label">Hours (last 50)</span>
+              </div>
+            </div>
+            <div class="metric-block">
+              <span class="metric-index">03</span>
+              <div>
+                <span id="genre-metric-average" class="metric-value">0:00</span>
+                <span class="metric-label">Avg. track (last 50)</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="grid-layout cols-2 margin-top">
-          <!-- HOURLY ACTIVITY CHART -->
-          <div class="panel">
-            <div class="panel-heading">
-              <div>
-                <span class="panel-kicker">ANALYSIS / RECENT PLAYS</span>
-                <h3>Hourly Listening Activity</h3>
+        <div class="analysis-group" id="analysis-group-habits">
+          <span class="analysis-section-title">Listening Habits</span>
+          <div class="grid-layout cols-2">
+            <!-- HOURLY ACTIVITY CHART -->
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="panel-kicker">ANALYSIS / RECENT PLAYS</span>
+                  <h3>Hourly Listening Activity</h3>
+                </div>
+                <span class="data-source">last 50 streams</span>
               </div>
-              <span class="data-source">last 50 streams</span>
+              <p class="section-desc">Distribution of your last 50 streams by hour of the day (local time).</p>
+              <div id="hourly-activity-chart-container" class="chart-container" style="height: 160px; display: flex; align-items: flex-end; justify-content: space-between; padding: 10px 0 20px 0; position: relative;">
+                <div class="loading-inline">Plotting activity...</div>
+              </div>
             </div>
-            <p class="section-desc">Distribution of your last 50 streams by hour of the day (local time).</p>
-            <div id="hourly-activity-chart-container" class="chart-container" style="height: 160px; display: flex; align-items: flex-end; justify-content: space-between; padding: 10px 0 20px 0; position: relative;">
-              <div class="loading-inline">Plotting activity...</div>
-            </div>
-          </div>
 
-          <!-- DAY OF WEEK ACTIVITY CHART -->
-          <div class="panel">
-            <div class="panel-heading">
-              <div>
-                <span class="panel-kicker">ANALYSIS / RECENT PLAYS</span>
-                <h3>Day-of-Week Activity</h3>
+            <!-- DAY OF WEEK ACTIVITY CHART -->
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="panel-kicker">ANALYSIS / RECENT PLAYS</span>
+                  <h3>Day-of-Week Activity</h3>
+                </div>
+                <span class="data-source">last 50 streams</span>
               </div>
-              <span class="data-source">last 50 streams</span>
-            </div>
-            <p class="section-desc">Which days your last 50 streams landed on (local time).</p>
-            <div id="day-of-week-chart-container" class="chart-container" style="height: 160px; display: flex; align-items: flex-end; justify-content: space-between; padding: 10px 0 20px 0; position: relative;">
-              <div class="loading-inline">Plotting activity...</div>
+              <p class="section-desc">Which days your last 50 streams landed on (local time).</p>
+              <div id="day-of-week-chart-container" class="chart-container" style="height: 160px; display: flex; align-items: flex-end; justify-content: space-between; padding: 10px 0 20px 0; position: relative;">
+                <div class="loading-inline">Plotting activity...</div>
+              </div>
             </div>
           </div>
         </div>
 
+        <div class="top50-section" id="top50-section">
+        <div class="analysis-group" id="analysis-group-taste">
         <div class="analysis-range-row margin-top">
           <span class="analysis-section-title" id="top50-section-title">Your Top 50 &middot; Last 6 Months</span>
           <div class="top50-range-control" id="top50-range-control" role="group" aria-label="Timeframe for Your Top 50">
@@ -474,7 +498,6 @@
           <span id="top50-range-status" class="top50-range-status hidden">Updating&hellip;</span>
         </div>
 
-        <div class="top50-section" id="top50-section">
         <div class="grid-layout cols-3-1">
           <div class="panel">
             <div class="panel-heading">
@@ -575,9 +598,11 @@
             </div>
           </div>
         </div>
+        </div><!-- /.analysis-group#analysis-group-taste -->
 
         <!-- QUADRANT CHARTS -->
-        <span class="analysis-section-title">Quadrant Charts</span>
+        <div class="analysis-group" id="analysis-group-correlations">
+        <span class="analysis-section-title">Correlations</span>
         <div class="grid-layout cols-2">
           <div class="panel">
             <div class="panel-heading">
@@ -637,6 +662,7 @@
             </div>
           </div>
         </div>
+        </div><!-- /.analysis-group#analysis-group-correlations -->
         </div><!-- /.top50-section -->
       </section>
 
