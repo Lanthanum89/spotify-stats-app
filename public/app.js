@@ -20,7 +20,14 @@ function tabIdFromHash() {
 // Called once after the dashboard first loads: opens directly into whatever
 // tab the URL names (falling back to Overview for an empty/invalid route),
 // and starts listening for Back/Forward.
+let routingInitialised = false;
+
 function initRouting() {
+  // loadDashboard can run more than once (retry, reconnect) — the popstate
+  // listener below must only be added the first time.
+  if (routingInitialised) return;
+  routingInitialised = true;
+
   const initialTab = tabIdFromHash() || 'overview';
   history.replaceState({ tab: initialTab }, '', `#/${initialTab}`);
   if (initialTab !== currentTab) {
@@ -76,6 +83,17 @@ let appData = {
   queue: [] // Latest fetched "up next" queue, for Overview's teaser
 };
 
+// Where the data on screen came from. 'snapshot' means the last-known copy
+// from a previous visit (offline reopen) rather than a live Spotify response.
+let dataSource = 'live';
+// When each dataset was last fetched live (or saved, for a snapshot copy).
+const dataStamps = {};
+// True between a dashboard starting to load and the session ending.
+let sessionActive = false;
+let dashboardLoadPromise = null;
+let rateLimitedUntil = 0;
+const DEFAULT_RATE_LIMIT_WAIT_MS = 30 * 1000;
+
 // Now Playing polling state
 const NOW_PLAYING_POLL_MS = 5000;
 const NOW_PLAYING_TICK_MS = 500;
@@ -98,21 +116,357 @@ const NOW_PLAYING_FAILURE_THRESHOLD = 3; // show a visible error after this many
 
 // --- Spotify API Helper ---
 // apiPath is a path under https://api.spotify.com/v1 (e.g. '/me/top/tracks?...').
+//
+// Failure handling lives here so every caller gets the same behaviour:
+//   401 / rejected token → end the session (login screen, saved data wiped)
+//   429                  → one global banner, and further calls wait out the window
+//   offline / network    → thrown as-is (err.isNetworkError, err.offline);
+//                          callers show a local message, the session survives
 async function spotifyFetch(apiPath) {
+  if (Date.now() < rateLimitedUntil) {
+    // Inside a rate-limit window: don't send requests Spotify has asked us to hold.
+    throw Object.assign(new Error('Waiting out a Spotify rate limit'), {
+      status: 429,
+      retryAfterMs: rateLimitedUntil - Date.now(),
+      alreadyReported: true
+    });
+  }
+
   try {
-    return await SpotifyAuth.apiFetch(apiPath);
+    const response = await SpotifyAuth.apiFetch(apiPath);
+    // A request that was already in flight may succeed while another has just
+    // been told to back off — only lift the limit once its window has passed.
+    if (rateLimitedUntil && Date.now() >= rateLimitedUntil) {
+      rateLimitedUntil = 0;
+      SoundTracksNotices.clearStatus('rate-limit');
+    }
+    return response;
   } catch (err) {
     if (err.isUnauthorized) {
-      showLoginScreen();
+      endSession('session_expired');
+    } else if (err.status === 429 && !err.alreadyReported) {
+      handleRateLimit(err);
     }
     throw err;
   }
 }
 
-function logout() {
+// Ends the session on this device: stops authenticated timers and removes
+// everything specific to the account (tokens are cleared by the caller or by
+// the auth module) — cached data, state and rendered DOM — then shows a clean
+// sign-in screen. Safe to call repeatedly (several requests can fail at once).
+function endSession(reason) {
+  if (!sessionActive && reason === 'session_expired') return;
+  sessionActive = false;
+
   stopNowPlayingPolling();
-  SpotifyAuth.disconnectSpotify();
+  SoundTracksSnapshot.clear();
+  clearAccountState();
   showLoginScreen();
+
+  const authError = document.getElementById('auth-error-msg');
+  authError.classList.add('hidden');
+  authError.textContent = '';
+  if (reason === 'session_expired') {
+    showError('session_expired');
+    SoundTracksNotices.announce('Your Spotify session has ended. Connect again to continue.');
+  }
+}
+
+// Log out and clear saved data: this is the one way to disconnect.
+function logout() {
+  sessionActive = true; // make endSession() run its full clean-up
+  SpotifyAuth.disconnectSpotify();
+  endSession('logout');
+  SoundTracksNotices.announce('Logged out. Saved data on this device was cleared.');
+}
+
+// Resets every piece of in-memory state and rendered DOM that belongs to the
+// signed-in account, so nothing (names, artwork, statistics) survives in the
+// page for the next person or account. UI preferences (grid/list, collapsed
+// sidebar) are deliberately kept — they describe the device, not the account.
+function clearAccountState() {
+  if (activeAudio) activeAudio.pause();
+  activeAudio = null;
+  activePlayButton = null;
+  activeTrackCard = null;
+
+  appData = { profile: null, topTracks: {}, topArtists: {}, recentlyPlayed: null, queue: [] };
+  dataSource = 'live';
+  Object.keys(dataStamps).forEach((key) => delete dataStamps[key]);
+  analysisRangeToken++;
+  rateLimitedUntil = 0;
+  SoundTracksNotices.clearStatus('rate-limit');
+  SoundTracksNotices.clearStatus('reconnected');
+
+  nowPlayingState = { trackId: null, isPlaying: false, progressMs: 0, durationMs: 0, lastSyncedAt: 0, contextUri: null, contextName: null, shuffleState: false };
+  nowPlayingConsecutiveFailures = 0;
+  hideDashboardError();
+  hideSidebarMiniPlayer();
+  ['mini-player-track', 'mini-player-artist', 'user-name', 'user-account-type'].forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) { node.textContent = ''; node.removeAttribute('title'); }
+  });
+  ['mini-player-cover', 'user-avatar'].forEach((id) => {
+    const img = document.getElementById(id);
+    if (img) { img.removeAttribute('src'); img.alt = ''; }
+  });
+  document.getElementById('now-playing-content').innerHTML = '<div class="loading-inline">Checking playback...</div>';
+
+  const emptied = [
+    'overview-queue-list', 'overview-recent-list',
+    'top-tracks-grid', 'top-tracks-table-body', 'top-artists-grid', 'top-artists-table-body',
+    'recently-played-grid', 'recently-played-table-body',
+    'search-library-grid', 'search-tracks-grid', 'search-artists-grid', 'search-albums-grid', 'search-playlists-grid',
+    'header-search-dropdown', 'key-insights-list', 'genre-donut'
+  ];
+  emptied.forEach((id) => { const node = document.getElementById(id); if (node) node.replaceChildren(); });
+  document.querySelectorAll('#tab-analysis [id$="-container"]').forEach((node) => node.replaceChildren());
+  ['genre-metric-plays', 'genre-metric-hours', 'genre-metric-average', 'taste-title', 'taste-description',
+    'genre-stat-primary', 'genre-stat-unique', 'genre-stat-share'].forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) node.textContent = '';
+  });
+
+  // Search and filter boxes (they may hold something the user typed about their own listening)
+  artistFilter = '';
+  trackFilter = '';
+  searchQuery = '';
+  searchTypeFilter = 'all';
+  headerSearchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
+  headerSearchLocalResults = { tracks: [], artists: [] };
+  ['global-search-input', 'header-search-input', 'artist-search-input', 'track-search-input'].forEach((id) => {
+    const input = document.getElementById(id);
+    if (input) input.value = '';
+  });
+  clearTimeout(searchDebounceTimer);
+  clearTimeout(headerSearchDebounceTimer);
+  hideAllControlErrors();
+  hideSearchPlayError();
+  miniPlayerControlPending = false;
+  closeHeaderSearchDropdown();
+  clearSpotifySearchResults();
+  document.getElementById('data-freshness').classList.add('hidden');
+  if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search);
+  currentTab = 'overview';
+  routingInitialised = false; // routing re-initialises on the next sign-in
+}
+
+// Turns a failed request into the sentence shown in a card. Offline gets its
+// own wording and no Retry (the global banner already has one).
+function loadFailureText(err, noun) {
+  if (err && err.offline) return `Not available offline. Reconnect to load ${noun}.`;
+  if (err && err.isNetworkError) return `Couldn’t reach Spotify to load ${noun}.`;
+  if (err && err.status === 429) return 'Spotify is limiting requests right now. Try again in a little while.';
+  if (err && err.status === 403) return `Spotify didn’t allow access to ${noun}. Logging out and connecting again may help.`;
+  return `Failed to load ${noun}. Please try again.`;
+}
+
+// Card-level error block. Static strings only (never Spotify data), so it is
+// safe to build as HTML.
+function localErrorHtml(err, noun) {
+  const retry = err && err.offline ? '' : '<div><button type="button" class="btn btn-secondary btn-sm" data-retry-load>Retry</button></div>';
+  return `<div class="local-error" role="status">${loadFailureText(err, noun)}${retry}</div>`;
+}
+
+function localErrorRowHtml(err, noun) {
+  return `<tr><td colspan="5">${localErrorHtml(err, noun)}</td></tr>`;
+}
+
+function playbackErrorMessage(err, fallback) {
+  if (err.offline) return 'You’re offline.';
+  if (err.status === 403) return 'Playback control needs Spotify Premium.';
+  if (err.status === 404) return 'No active Spotify device found — open Spotify on a device first.';
+  if (err.status === 429) return 'Spotify is limiting requests. Try again shortly.';
+  return fallback;
+}
+
+// --- Connectivity, freshness and recovery ---------------------------------
+
+function formatSavedAt(timestamp) {
+  const date = new Date(timestamp);
+  const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return date.toDateString() === new Date().toDateString()
+    ? time
+    : `${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, ${time}`;
+}
+
+function markUpdated(key, when = Date.now()) {
+  dataStamps[key] = when;
+  refreshFreshnessLabel();
+}
+
+function freshnessKeysFor(tabId) {
+  if (tabId === 'overview' || tabId === 'recent') return ['recent'];
+  if (tabId === 'tracks') return [`tracks:${currentRange}`];
+  if (tabId === 'artists') return [`artists:${currentRange}`];
+  if (tabId === 'analysis') return [`tracks:${analysisRange}`, `artists:${analysisRange}`, 'recent'];
+  return [];
+}
+
+// "Updated 14:32" when live and online; clearly marked as last-known/offline
+// otherwise, so old data is never presented as current.
+function refreshFreshnessLabel() {
+  const label = document.getElementById('data-freshness');
+  if (!label) return;
+
+  const stamps = freshnessKeysFor(currentTab).map((key) => dataStamps[key]);
+  const isStale = dataSource === 'snapshot' || !navigator.onLine;
+  // Overview is mostly live playback, so it only carries a label when stale.
+  if (stamps.length === 0 || stamps.some((stamp) => !stamp) || (currentTab === 'overview' && !isStale)) {
+    label.classList.add('hidden');
+    return;
+  }
+
+  const oldest = Math.min(...stamps);
+  const time = document.createElement('time');
+  time.dateTime = new Date(oldest).toISOString();
+  time.textContent = formatSavedAt(oldest);
+  const prefix = dataSource === 'snapshot' ? 'Offline copy · saved ' : isStale ? 'Last known data · ' : 'Updated ';
+  label.replaceChildren(prefix, time);
+  label.classList.toggle('is-stale', isStale);
+  label.classList.remove('hidden');
+}
+
+// The single global banner for "we can't reach Spotify right now".
+function showOfflineBanner({ reachable = false, checkedAt = null } = {}) {
+  const hasData = Boolean(appData.profile);
+  const label = reachable ? 'Can’t reach Spotify' : 'Offline';
+  const detail = dataSource === 'snapshot'
+    ? `Showing your last saved copy from ${formatSavedAt(dataStamps.recent || Date.now())}. It will refresh when Spotify is reachable.`
+    : hasData
+      ? 'Showing data from earlier in this session; it may be out of date.'
+      : 'Spotify data can’t load until you’re connected.';
+  SoundTracksNotices.clearStatus('reconnected');
+  SoundTracksNotices.showStatus('offline', {
+    tone: 'warn',
+    icon: 'offline',
+    label,
+    text: checkedAt ? `${detail} Still not connected (checked ${formatSavedAt(checkedAt)}).` : detail,
+    action: { label: 'Retry', onClick: retryConnection }
+  });
+}
+
+function initConnectivity() {
+  window.addEventListener('offline', handleWentOffline);
+  window.addEventListener('online', handleCameOnline);
+  if (!navigator.onLine) showOfflineBanner();
+}
+
+function handleWentOffline() {
+  hideDashboardError();
+  showOfflineBanner();
+  SoundTracksNotices.announce('You are offline. Spotify data will not update until you reconnect.');
+  if (nowPlayingPollTimer) renderNowPlayingOffline();
+  refreshFreshnessLabel();
+}
+
+let isRecovering = false;
+
+async function handleCameOnline() {
+  SoundTracksNotices.clearStatus('offline');
+  refreshFreshnessLabel();
+  if (!sessionActive) {
+    SoundTracksNotices.announce('Back online.');
+    return;
+  }
+  await recoverConnection();
+}
+
+// Re-fetches whatever is on screen after connectivity returns. Shows
+// "Back online" only once the outcome is known, so it never claims fresh data
+// that didn't arrive.
+async function recoverConnection() {
+  if (isRecovering) return false;
+  isRecovering = true;
+  SoundTracksNotices.showStatus('reconnected', {
+    tone: 'ok', icon: 'check', label: 'Back online', text: 'Refreshing your Spotify data…'
+  });
+  SoundTracksNotices.announce('Back online. Refreshing your data.');
+
+  let ok = false;
+  try {
+    ok = await refreshCurrentView();
+  } finally {
+    isRecovering = false;
+  }
+
+  if (ok) {
+    SoundTracksNotices.clearStatus('offline');
+    SoundTracksNotices.showStatus('reconnected', {
+      tone: 'ok', icon: 'check', label: 'Back online', text: 'Your Spotify data is up to date.', dismissible: true, autoHideMs: 6000
+    });
+    SoundTracksNotices.announce('Your Spotify data is up to date.');
+  } else {
+    SoundTracksNotices.clearStatus('reconnected');
+    // The refresh failed. If nothing has explained why yet (a global banner or
+    // the dashboard's own error), say so once — never two banners.
+    const dashboardErrorShown = !document.getElementById('dashboard-error-banner').classList.contains('hidden');
+    if (!SoundTracksNotices.hasBlockingStatus() && !dashboardErrorShown) showOfflineBanner({ reachable: true });
+  }
+  refreshFreshnessLabel();
+  return ok;
+}
+
+// The offline banner's Retry. navigator.onLine can only say "no" reliably, so
+// when the browser claims to be online this is a real attempt to reach Spotify.
+async function retryConnection() {
+  if (!navigator.onLine) {
+    showOfflineBanner({ checkedAt: Date.now() });
+    SoundTracksNotices.announce('Still offline.');
+    return;
+  }
+  if (!sessionActive) {
+    SoundTracksNotices.clearStatus('offline');
+    return;
+  }
+  await recoverConnection();
+}
+
+function retryAfterRateLimit() {
+  const remaining = rateLimitedUntil - Date.now();
+  if (remaining > 0) {
+    SoundTracksNotices.announce(`Spotify asked us to wait about ${Math.ceil(remaining / 1000)} more seconds.`);
+    return;
+  }
+  rateLimitedUntil = 0;
+  SoundTracksNotices.clearStatus('rate-limit');
+  refreshCurrentView();
+  if (nowPlayingPollTimer) pollNowPlaying();
+}
+
+function handleRateLimit(err) {
+  const wait = err.retryAfterMs || DEFAULT_RATE_LIMIT_WAIT_MS;
+  const alreadyShowing = SoundTracksNotices.hasStatus('rate-limit') && Date.now() < rateLimitedUntil;
+  rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + wait);
+  if (alreadyShowing) return;
+
+  SoundTracksNotices.showStatus('rate-limit', {
+    tone: 'warn',
+    icon: 'warning',
+    label: 'Rate limited',
+    text: `Spotify is limiting requests. Please wait about ${Math.ceil(wait / 1000)} seconds, then retry.`,
+    action: { label: 'Retry', onClick: retryAfterRateLimit }
+  });
+  SoundTracksNotices.announce('Spotify is limiting requests. Wait a moment, then retry.');
+}
+
+// Re-fetches what the current view needs. Resolves true if it all loaded.
+async function refreshCurrentView() {
+  if (!appData.profile || dataSource === 'snapshot') return loadDashboard();
+
+  if (currentTab === 'tracks') return loadTopTracks(true);
+  if (currentTab === 'artists') return loadTopArtists(true);
+  if (currentTab === 'analysis') return (await loadAnalysisTab(true)) !== false;
+  if (currentTab === 'search' && searchQuery.length >= SEARCH_MIN_CHARS) {
+    await runSpotifySearch(searchQuery);
+    return true;
+  }
+  // Overview, Recent and Search all rest on the recently-played list.
+  const ok = await loadRecentlyPlayed();
+  if (ok) renderOverview();
+  if (nowPlayingPollTimer) pollNowPlaying();
+  return ok;
 }
 
 // UK English formatting helpers
@@ -163,28 +517,18 @@ function formatRelativeTime(dateString) {
 // frame) ensures back-to-back identical messages are both announced, since
 // most screen readers only react to an actual content change.
 function announceStatus(message) {
-  const region = document.getElementById('a11y-status');
-  if (!region) return;
-  region.textContent = '';
-  requestAnimationFrame(() => { region.textContent = message; });
+  SoundTracksNotices.announce(message);
 }
 
 // Initialise App
 document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
+  initConnectivity();
   checkAuthStatus();
 
-  // Connectivity changes — deliberately just an announcement here, not a
-  // persistent visual banner (that's a larger offline-UX piece of its own).
-  // Now Playing specifically also gets an immediate re-check so it recovers
-  // as soon as the connection does, rather than waiting for the next poll.
-  window.addEventListener('offline', () => {
-    announceStatus('You are offline. Spotify data will not update until you reconnect.');
-    if (nowPlayingPollTimer) renderNowPlayingOffline();
-  });
-  window.addEventListener('online', () => {
-    announceStatus('Back online.');
-    if (nowPlayingPollTimer) pollNowPlaying();
+  // Card-level "Retry" buttons (see localErrorHtml)
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-retry-load]')) refreshCurrentView();
   });
 
   // Now Playing's own "Retry" button (shown after repeated poll failures)
@@ -205,6 +549,9 @@ async function checkAuthStatus() {
 
     if (redirectResult.handled) {
       if (redirectResult.success) {
+        // A fresh authorisation may be a different Spotify account: never let
+        // the previous account's saved copy be shown to it.
+        SoundTracksSnapshot.clear();
         await loadDashboard();
       } else {
         showError(redirectResult.error);
@@ -228,11 +575,13 @@ async function checkAuthStatus() {
 }
 
 function showLoginScreen() {
+  SoundTracksNotices.mountIn(document.querySelector('#login-container .auth-body'));
   document.getElementById('login-container').classList.remove('hidden');
   document.getElementById('app-container').classList.add('hidden');
 }
 
 function showDashboardScreen() {
+  SoundTracksNotices.mountIn(document.getElementById('main-content'));
   document.getElementById('login-container').classList.add('hidden');
   document.getElementById('app-container').classList.remove('hidden');
 }
@@ -289,6 +638,8 @@ function showError(errorType) {
     msg = 'The authorisation response could not be verified. Please try connecting again.';
   } else if (errorType === 'missing_client_id') {
     msg = 'No Spotify Client ID is configured. Add one to the spotify-client-id meta tag in index.html.';
+  } else if (errorType === 'session_expired') {
+    msg = 'Your Spotify session has ended or was rejected. Connect again to continue.';
   } else if (errorType === 'failed_connection') {
     msg = 'Unable to reach Spotify. Check your connection and try again.';
   }
@@ -593,6 +944,11 @@ function switchTab(tabId) {
   });
   document.getElementById(`tab-${tabId}`).classList.add('active');
 
+  // Analysis needs live data the saved copy doesn't include.
+  const analysisBlocked = dataSource === 'snapshot';
+  document.getElementById('tab-analysis').classList.toggle('is-offline-unavailable', analysisBlocked);
+  document.getElementById('analysis-offline-note').classList.toggle('hidden', !analysisBlocked);
+
   // Load tab data
   if (tabId === 'overview') {
     renderOverview();
@@ -603,16 +959,81 @@ function switchTab(tabId) {
   } else if (tabId === 'artists') {
     loadTopArtists();
   } else if (tabId === 'analysis') {
-    loadAnalysisTab();
+    if (!analysisBlocked) loadAnalysisTab();
   } else if (tabId === 'recent') {
     loadRecentlyPlayed();
   }
+
+  refreshFreshnessLabel();
 }
 
-// Load and cache all initial dashboard data
-async function loadDashboard() {
+// Load and cache all initial dashboard data. Resolves true if the dashboard
+// now shows live data. Concurrent calls share one load.
+function loadDashboard() {
+  if (!dashboardLoadPromise) {
+    dashboardLoadPromise = loadDashboardOnce().finally(() => { dashboardLoadPromise = null; });
+  }
+  return dashboardLoadPromise;
+}
+
+function renderUserBar(profile) {
+  document.getElementById('user-name').textContent = profile.display_name;
+  const avatarUrl = profile.images && profile.images.length > 0
+    ? profile.images[0].url
+    : 'https://via.placeholder.com/40';
+  const avatar = document.getElementById('user-avatar');
+  avatar.src = avatarUrl;
+  avatar.alt = 'Avatar';
+  document.getElementById('user-account-type').textContent = String(profile.product || '').toUpperCase();
+}
+
+// Shared tail of a live load and a snapshot restore.
+function showDashboardContent() {
+  renderUserBar(appData.profile);
+  renderOverview();
+  startNowPlayingPolling();
+  if (routingInitialised) {
+    // Already showing a tab: re-apply it now the data source may have changed.
+    isApplyingHistoryNavigation = true;
+    switchTab(currentTab);
+    isApplyingHistoryNavigation = false;
+  } else {
+    initRouting();
+  }
+  refreshFreshnessLabel();
+}
+
+// Offline reopen: show the last-known copy, clearly labelled. Only ever
+// used while this browser still holds a Spotify connection, so a saved copy
+// can't be seen by someone who has logged out (which also deletes it).
+function restoreFromSnapshot(reachable) {
+  if (!SpotifyAuth.isConnected()) return false;
+  const snapshot = SoundTracksSnapshot.load();
+  if (!snapshot) return false;
+
+  appData.profile = snapshot.profile;
+  appData.recentlyPlayed = snapshot.recentlyPlayed;
+  appData.topTracks = { medium_term: snapshot.topTracks };
+  appData.topArtists = { medium_term: snapshot.topArtists };
+  dataSource = 'snapshot';
+  ['recent', 'tracks:medium_term', 'artists:medium_term'].forEach((key) => { dataStamps[key] = snapshot.savedAt; });
+
+  showDashboardContent();
+  showOfflineBanner({ reachable });
+  return true;
+}
+
+async function loadDashboardOnce() {
+  sessionActive = true;
   showDashboardScreen();
   hideDashboardError();
+
+  if (!navigator.onLine) {
+    // Don't wait for requests that can only fail.
+    if (restoreFromSnapshot(false)) return false;
+    startNowPlayingPolling(); // shows the offline message, resumes on reconnect
+    return false;
+  }
 
   try {
     // Fetch profile, recently played, and default ranges for initial display
@@ -628,18 +1049,19 @@ async function loadDashboard() {
     appData.topTracks['medium_term'] = await tracksRes.json();
     appData.topArtists['medium_term'] = await artistsRes.json();
 
-    // Fill user bar details
-    document.getElementById('user-name').textContent = appData.profile.display_name;
-    const avatarUrl = appData.profile.images && appData.profile.images.length > 0 
-      ? appData.profile.images[0].url 
-      : 'https://via.placeholder.com/40';
-    document.getElementById('user-avatar').src = avatarUrl;
-    document.getElementById('user-account-type').textContent = appData.profile.product.toUpperCase();
+    // This live copy replaces any saved one (a snapshot is only ever the
+    // most recent successful load, and never mixed with live values).
+    dataSource = 'live';
+    ['recent', 'tracks:medium_term', 'artists:medium_term'].forEach((key) => { dataStamps[key] = Date.now(); });
+    SoundTracksSnapshot.save({
+      profile: appData.profile,
+      topTracks: appData.topTracks['medium_term'],
+      topArtists: appData.topArtists['medium_term'],
+      recentlyPlayed: appData.recentlyPlayed
+    });
 
-    // Render overview tab first
-    renderOverview();
-    startNowPlayingPolling();
-    initRouting();
+    showDashboardContent();
+    return true;
 
   } catch (err) {
     console.error('Error fetching dashboard data:', err);
@@ -648,9 +1070,18 @@ async function loadDashboard() {
     // screen for that case. Anything else (a rate limit, a network blip) is
     // transient and shouldn't cost the user their session — show a retry
     // instead of logging them out over it.
-    if (!err.isUnauthorized) {
+    if (err.isUnauthorized) return false; // endSession already showed sign-in
+
+    if (err.isNetworkError && err.status !== 429) {
+      // Can't reach Spotify: fall back to the saved copy if there is one.
+      // and either way explain it once, in the global banner (which has Retry).
+      if (!appData.profile && restoreFromSnapshot(!err.offline)) return false;
+      showOfflineBanner({ reachable: !err.offline });
+    } else if (err.status !== 429) {
+      // (A 429 already has the global rate-limit banner; no second one.)
       showDashboardError('Failed to load your dashboard data. This is usually temporary — try again.');
     }
+    return false;
   }
 }
 
@@ -823,6 +1254,8 @@ async function pollNowPlaying() {
     renderNowPlayingOffline();
     return;
   }
+  // Hold polling while Spotify has asked us to back off.
+  if (Date.now() < rateLimitedUntil) return;
 
   let response;
   try {
@@ -833,6 +1266,11 @@ async function pollNowPlaying() {
       // needs a fresh login to pick up the new scope.
       stopNowPlayingPolling();
       renderNowPlayingNeedsReconnect();
+      return;
+    }
+    if (err.status === 429 || err.isUnauthorized) return; // handled globally (banner / sign-in)
+    if (err.offline) {
+      renderNowPlayingOffline();
       return;
     }
     // spotifyFetch already handles 401 (shows login screen). Anything else
@@ -877,7 +1315,7 @@ function renderNowPlayingIdle() {
   nowPlayingState = { trackId: null, isPlaying: false, progressMs: 0, durationMs: 0, lastSyncedAt: 0, contextUri: null, contextName: null, shuffleState: false };
   document.getElementById('now-playing-status-badge').classList.add('hidden');
   document.getElementById('now-playing-content').innerHTML =
-    '<div class="loading-inline">Nothing currently playing. Open Spotify and start playing something — or check that a device is active.</div>';
+    '<div class="loading-inline">Nothing is playing, and no active Spotify device was found. Open Spotify on a device and press play.</div>';
   hideSidebarMiniPlayer();
 }
 
@@ -891,7 +1329,7 @@ function renderNowPlayingNeedsReconnect() {
 function renderNowPlayingOffline() {
   document.getElementById('now-playing-status-badge').classList.add('hidden');
   document.getElementById('now-playing-content').innerHTML =
-    '<div class="loading-inline">You&rsquo;re offline. Now Playing will resume once you&rsquo;re back online.</div>';
+    '<div class="loading-inline">You&rsquo;re offline, so playback can&rsquo;t be shown. Now Playing resumes when you&rsquo;re back online.</div>';
   hideSidebarMiniPlayer();
 }
 
@@ -1088,13 +1526,7 @@ async function playbackControl(method, path) {
     await new Promise((resolve) => setTimeout(resolve, 400));
     await pollNowPlaying();
   } catch (err) {
-    if (err.status === 403) {
-      showAllControlErrors('Playback control needs Spotify Premium.');
-    } else if (err.status === 404) {
-      showAllControlErrors('No active Spotify device found.');
-    } else {
-      showAllControlErrors('Playback control failed.');
-    }
+    showAllControlErrors(playbackErrorMessage(err, 'Playback control failed.'));
   } finally {
     miniPlayerControlPending = false;
     setAllControlsDisabled(false);
@@ -1187,7 +1619,7 @@ async function loadTopTracks(forceReload = false) {
   
   if (!forceReload && appData.topTracks[currentRange]) {
     renderTopTracks(appData.topTracks[currentRange]);
-    return;
+    return true;
   }
 
   const spinnerHtml = '<div class="loading-inline" style="grid-column: 1/-1;"><div class="spinner" style="height: 30px; width: 30px; margin: 0 auto;"></div></div>';
@@ -1198,11 +1630,14 @@ async function loadTopTracks(forceReload = false) {
     const res = await spotifyFetch(`/me/top/tracks?time_range=${currentRange}&limit=50`);
     const data = await res.json();
     appData.topTracks[currentRange] = data;
+    markUpdated(`tracks:${currentRange}`);
     renderTopTracks(data);
+    return true;
   } catch (err) {
-    console.error('Error fetching top tracks:', err);
-    tbody.innerHTML = '<tr><td colspan="5" class="loading-inline">Failed to load tracks. Please try again.</td></tr>';
-    grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;">Failed to load tracks. Please try again.</div>';
+    console.error('Error fetching top tracks:', err.message);
+    tbody.innerHTML = localErrorRowHtml(err, 'your top tracks');
+    grid.innerHTML = `<div style="grid-column: 1/-1;">${localErrorHtml(err, 'your top tracks')}</div>`;
+    return false;
   }
 }
 
@@ -1278,7 +1713,7 @@ async function loadTopArtists(forceReload = false) {
 
   if (!forceReload && appData.topArtists[currentRange]) {
     renderTopArtists(appData.topArtists[currentRange]);
-    return;
+    return true;
   }
 
   const spinnerHtml = '<div class="loading-inline" style="grid-column: 1/-1;"><div class="spinner" style="height: 30px; width: 30px; margin: 0 auto;"></div></div>';
@@ -1289,11 +1724,14 @@ async function loadTopArtists(forceReload = false) {
     const res = await spotifyFetch(`/me/top/artists?time_range=${currentRange}&limit=50`);
     const data = await res.json();
     appData.topArtists[currentRange] = data;
+    markUpdated(`artists:${currentRange}`);
     renderTopArtists(data);
+    return true;
   } catch (err) {
-    console.error('Error fetching top artists:', err);
-    grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;">Failed to load artists. Please try again.</div>';
-    tbody.innerHTML = '<tr><td colspan="5" class="loading-inline">Failed to load artists. Please try again.</td></tr>';
+    console.error('Error fetching top artists:', err.message);
+    grid.innerHTML = `<div style="grid-column: 1/-1;">${localErrorHtml(err, 'your top artists')}</div>`;
+    tbody.innerHTML = localErrorRowHtml(err, 'your top artists');
+    return false;
   }
 }
 
@@ -1468,18 +1906,20 @@ async function loadAnalysisTab(forceReload = false) {
         );
       }
       await Promise.all(promises);
+      if (needsArtists) markUpdated(`artists:${range}`);
+      if (needsTracks) markUpdated(`tracks:${range}`);
     } catch (err) {
-      console.error('Error fetching analysis data:', err);
+      console.error('Error fetching analysis data:', err.message);
       // A newer range switch already owns the loading/error UI — leave it alone.
       if (requestToken === analysisRangeToken) {
         if (section) section.classList.remove('is-loading');
         if (statusEl) statusEl.classList.add('hidden');
         const chartContainer = document.getElementById('genres-chart-container');
         const popularityContainer = document.getElementById('popularity-distribution-container');
-        if (chartContainer) chartContainer.innerHTML = '<div class="loading-inline">Failed to load data.</div>';
-        if (popularityContainer) popularityContainer.innerHTML = '<div class="loading-inline">Failed to load data.</div>';
+        if (chartContainer) chartContainer.innerHTML = localErrorHtml(err, 'this analysis');
+        if (popularityContainer) popularityContainer.innerHTML = `<div class="loading-inline">${loadFailureText(err, 'this analysis')}</div>`;
       }
-      return;
+      return false;
     }
   }
 
@@ -1766,11 +2206,14 @@ async function loadRecentlyPlayed() {
     const res = await spotifyFetch('/me/player/recently-played?limit=50');
     const data = await res.json();
     appData.recentlyPlayed = data;
+    markUpdated('recent');
     renderRecentlyPlayed(data);
+    return true;
   } catch (err) {
-    console.error('Error fetching recently played:', err);
-    tbody.innerHTML = '<tr><td colspan="5" class="loading-inline">Failed to load recently played tracks. Please try again.</td></tr>';
-    grid.innerHTML = '<div class="loading-inline" style="grid-column: 1/-1;">Failed to load recently played tracks. Please try again.</div>';
+    console.error('Error fetching recently played:', err.message);
+    tbody.innerHTML = localErrorRowHtml(err, 'your recent plays');
+    grid.innerHTML = `<div style="grid-column: 1/-1;">${localErrorHtml(err, 'your recent plays')}</div>`;
+    return false;
   }
 }
 
@@ -3014,7 +3457,7 @@ async function runSpotifySearch(query) {
       searchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
       renderSpotifySearchResults();
       const noResultsEl = document.getElementById('search-no-results');
-      noResultsEl.textContent = SEARCH_ERROR_TEXT;
+      noResultsEl.textContent = err.offline ? 'Search needs a connection. Reconnect and try again.' : err.status === 429 ? 'Spotify is limiting requests. Try again shortly.' : SEARCH_ERROR_TEXT;
       noResultsEl.classList.remove('hidden');
     }
   } finally {
@@ -3195,12 +3638,8 @@ async function playSearchResult(body, itemName, buttonEl) {
     await new Promise((resolve) => setTimeout(resolve, 400));
     await pollNowPlaying();
   } catch (err) {
-    if (err.status === 403) {
-      showSearchPlayError('Playback control needs Spotify Premium.');
-    } else if (err.status === 404) {
-      showSearchPlayError('No active Spotify device found — open Spotify on a device first.');
-    } else if (!err.isUnauthorized) {
-      showSearchPlayError(`Couldn't play "${itemName}".`);
+    if (!err.isUnauthorized) {
+      showSearchPlayError(playbackErrorMessage(err, `Couldn't play "${itemName}".`));
     }
   } finally {
     if (buttonEl) buttonEl.disabled = false;
@@ -3223,29 +3662,4 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// PWA install support — only caches the static shell, see sw.js.
-// Relative path so registration resolves correctly under a subpath (e.g. GitHub Pages).
-//
-// Browsers throttle their own passive update checks (as infrequently as once
-// per 24h), which meant a deployed change could sit unnoticed by an already-
-// installed PWA for a long time even though the server had it. So: force an
-// explicit update check on load and whenever the app is foregrounded again,
-// and reload once a new worker actually takes over, so a fresh deploy is
-// visible the next time the user opens the app rather than after a wait.
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', async () => {
-    const registration = await navigator.serviceWorker.register('sw.js');
-
-    registration.update();
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) registration.update();
-    });
-
-    let reloaded = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloaded) return;
-      reloaded = true;
-      window.location.reload();
-    });
-  });
-}
+// PWA install and service-worker updates live in pwa.js (shell caching: sw.js).

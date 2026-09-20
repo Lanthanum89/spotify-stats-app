@@ -17,7 +17,8 @@ SoundTracks is a fully static, backend-free web app that connects to your Spotif
 - **Responsive**: A full sidebar layout on desktop; on phones and tablets in portrait (up to 1024px wide) it switches to a top bar with a hamburger-triggered slide-out nav drawer instead, with grids, tables, and filters adapted for smaller screens. Top Tracks/Artists/Recently Played default to a compact stacked list on phones instead of a grid or a wide scrolling table — grid stays one tap away, and your own choice is remembered from then on. Icon-only controls get a ~44px tap target on touch input without changing how the icon itself looks.
 - **URL routing**: Each main tab has its own shareable route (`#/tracks`, `#/analysis`, ...). Switching tabs updates the URL without a page reload; browser Back/Forward move between tabs (so Back doesn't dump you out of the installed PWA); opening a route directly selects that tab; an unrecognised route falls back to Now Playing.
 - **Accessible by default**: icon-only controls (logout, grid/list toggle, sidebar collapse, playback, mobile nav, filter clear) all have accessible names, not just a `title` tooltip. Search results, playback errors, dashboard load failures, and offline/online changes are announced to screen readers. Chart marks (hourly/day-of-week bars, the quadrant scatter plots) are keyboard-reachable with focus-triggered tooltips and a text alternative alongside the SVG, so nothing is hover-only or colour-only. The sidebar has an explicit, keyboard-operable collapse button alongside the existing click-anywhere-on-the-rail shortcut.
-- **Installable (PWA)**: Can be added to your home screen on Android, with offline caching of the app shell.
+- **Installable (PWA)**: An "Install app" button appears (sidebar, or the mobile menu) only when the browser reports the app is installable, and never when it is already installed. Nothing pops up unprompted. See [Offline, install and updates](#offline-install-and-updates).
+- **Honest offline states**: A single banner says when you're offline, rate limited or can't reach Spotify; a "Last updated" line shows when the data on screen was fetched; failed cards offer Retry.
 - **Static, backend-free architecture**: Authenticates directly against Spotify from the browser using Authorization Code + PKCE. There's no server holding credentials — no Client Secret, no session store, nothing but static files. Tokens live only in your browser's `localStorage`.
 
 ---
@@ -35,6 +36,43 @@ This app uses OAuth 2.0 **Authorization Code with PKCE** — the flow designed f
 Because there's no backend, this app can be hosted anywhere that serves static files — including GitHub Pages.
 
 ---
+
+## Offline, install and updates
+
+### What works offline
+- The app shell (page, scripts, styles, icons) opens offline once it has been visited online, including when launched as an installed app.
+- A **last-known snapshot**: if you were signed in, your profile, top tracks and top artists (last 6 months) and recent plays from your last successful load are shown, clearly labelled "Offline copy · saved <time>".
+
+### What does not work offline
+- Anything that needs Spotify: Now Playing and playback controls, searching Spotify's catalogue (filtering your saved top tracks/artists still works), the other time ranges, the Analysis tab, and signing in. These say so rather than showing stale values as current.
+- Album/artist artwork is not cached by the app, so it may not appear offline unless your browser still has it.
+
+### What is stored locally (this browser only)
+| Key | Contents |
+|---|---|
+| `spotify_*` (localStorage) | Access/refresh token and PKCE state, needed to stay connected |
+| `soundtracks_snapshot_v1` (localStorage) | Display fields for the snapshot above: names, ranks, popularity, cover URL, links. No tokens, no email, no raw API responses |
+| `view-mode`, `sidebar-collapsed` | Layout preferences (kept on logout, deliberately) |
+| Cache Storage `soundtracks-shell-<build>`, `soundtracks-fonts-v1` | The static app shell and Google Fonts files |
+
+Snapshot policy: replaced after every successful live load; expires 7 days after it was fetched; discarded if corrupted, from another schema version or dated in the future; only shown while the browser still holds a Spotify connection; deleted when a new authorisation completes (so another account never sees it).
+
+### Clearing it
+**Log out** (the logout icon, "Log out and clear saved data") removes the tokens, the snapshot and everything account-specific from the page. A rejected session (Spotify returns 401) does the same. You can also revoke access in your Spotify account settings.
+
+### Updates
+A new deploy installs in the background and **waits**. You'll see a compact "Update available" notice with **Update** and **Later**; nothing reloads until you choose Update, and then the page reloads once. The first-ever install shows no notice. Update checks run on load and when the app returns to the foreground (at most every 15 minutes). The shell is served from a single versioned cache, so files from two deploys can never be mixed.
+
+The cache is named after `BUILD_ID` in `public/sw.js`, which the Pages workflow stamps with the commit SHA on every deploy. While it is the literal `'dev'` (local development) the worker is network-first so edits show immediately; to exercise the update flow locally, change `'dev'` to any string, load, then change it again.
+
+### Installing
+- Chrome/Edge/Android: use the "Install app" button when it appears (or the browser's own menu).
+- iOS/iPadOS Safari has no install event: an "Install app" button shows a short "Share → Add to Home Screen" hint. Other iOS browsers get no hint.
+- Firefox desktop doesn't support installing web apps; no button is shown.
+- The manifest `id` is fixed at `/spotify-stats-app/`; if you fork under another repository name, change it to match.
+
+### Tests
+`npm test` runs dependency-free checks (Node's built-in runner) over the snapshot module and the service-worker/manifest invariants a deploy relies on.
 
 ## Spotify API Setup Guide
 
