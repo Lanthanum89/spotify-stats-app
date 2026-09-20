@@ -130,6 +130,6 @@ async function fontResponse(request) {
       if (response.ok || response.type === 'opaque') cache.put(request, response.clone())
       return response
     })
-    .catch(() => cached)
+    .catch(() => cached || Response.error())
   return cached || refresh
 }

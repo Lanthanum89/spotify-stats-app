@@ -44,7 +44,7 @@ Because there's no backend, this app can be hosted anywhere that serves static f
 - A **last-known snapshot**: if you were signed in, your profile, top tracks and top artists (last 6 months) and recent plays from your last successful load are shown, clearly labelled "Offline copy · saved <time>".
 
 ### What does not work offline
-- Anything that needs Spotify: Now Playing and playback controls, search, the other time ranges, the Analysis tab, and signing in. These say so rather than showing stale values as current.
+- Anything that needs Spotify: Now Playing and playback controls, searching Spotify's catalogue (filtering your saved top tracks/artists still works), the other time ranges, the Analysis tab, and signing in. These say so rather than showing stale values as current.
 - Album/artist artwork is not cached by the app, so it may not appear offline unless your browser still has it.
 
 ### What is stored locally (this browser only)

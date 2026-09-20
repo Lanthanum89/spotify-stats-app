@@ -62,7 +62,13 @@
     }
   }
 
+  // Bumped whenever tokens are cleared, so a refresh that was already in
+  // flight can tell it has been overtaken by a logout/401 and must not write
+  // the old account's tokens back.
+  let tokenGeneration = 0;
+
   function clearTokens() {
+    tokenGeneration++;
     Object.values(STORAGE_KEYS).forEach((key) => localStorage.removeItem(key));
   }
 
@@ -163,6 +169,7 @@
       throw new SpotifyUnauthorizedError('No refresh token available');
     }
 
+    const generation = tokenGeneration;
     const response = await postToTokenEndpoint(new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
@@ -179,7 +186,11 @@
       throw createTransientError(`Token refresh failed: ${response.status}`, { status: response.status });
     }
 
-    storeTokens(await response.json());
+    const data = await response.json();
+    if (generation !== tokenGeneration) {
+      throw new SpotifyUnauthorizedError('Session ended while refreshing');
+    }
+    storeTokens(data);
     return localStorage.getItem(STORAGE_KEYS.accessToken);
   }
 

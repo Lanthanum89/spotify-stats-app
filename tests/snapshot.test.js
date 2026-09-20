@@ -138,3 +138,17 @@ test('degrades to "no snapshot" when storage throws', () => {
   assert.equal(snapshot.load(NOW), null);
   assert.doesNotThrow(() => snapshot.clear());
 });
+
+test('load() drops unknown properties injected into storage', () => {
+  const store = installStorage();
+  snapshot.save(live(), NOW);
+  const parsed = JSON.parse(store.get(snapshot.STORAGE_KEY));
+  parsed.topTracks.items[0].secret = 'x';
+  parsed.profile.email = 'leak@example.com';
+  parsed.extra = true;
+  store.set(snapshot.STORAGE_KEY, JSON.stringify(parsed));
+  const loaded = snapshot.load(NOW);
+  assert.equal(loaded.topTracks.items[0].secret, undefined);
+  assert.equal(loaded.profile.email, undefined);
+  assert.equal(loaded.extra, undefined);
+});

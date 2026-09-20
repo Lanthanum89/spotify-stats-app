@@ -185,7 +185,18 @@
 
     try {
       const snapshot = JSON.parse(raw);
-      if (isValidSnapshot(snapshot, now)) return snapshot;
+      // Validation checks shape; re-reducing also drops any unknown properties,
+      // so only the documented display fields ever reach the UI.
+      if (isValidSnapshot(snapshot, now)) {
+        return {
+          version: snapshot.version,
+          savedAt: snapshot.savedAt,
+          profile: reduceProfile(snapshot.profile),
+          topTracks: reduceList(snapshot.topTracks, reduceTrack),
+          topArtists: reduceList(snapshot.topArtists, reduceArtist),
+          recentlyPlayed: reduceList(snapshot.recentlyPlayed, reduceRecent)
+        };
+      }
     } catch (err) {
       // Corrupted JSON — fall through to deletion.
     }

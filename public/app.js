@@ -134,7 +134,9 @@ async function spotifyFetch(apiPath) {
 
   try {
     const response = await SpotifyAuth.apiFetch(apiPath);
-    if (rateLimitedUntil) {
+    // A request that was already in flight may succeed while another has just
+    // been told to back off — only lift the limit once its window has passed.
+    if (rateLimitedUntil && Date.now() >= rateLimitedUntil) {
       rateLimitedUntil = 0;
       SoundTracksNotices.clearStatus('rate-limit');
     }
@@ -237,6 +239,11 @@ function clearAccountState() {
     const input = document.getElementById(id);
     if (input) input.value = '';
   });
+  clearTimeout(searchDebounceTimer);
+  clearTimeout(headerSearchDebounceTimer);
+  hideAllControlErrors();
+  hideSearchPlayError();
+  miniPlayerControlPending = false;
   closeHeaderSearchDropdown();
   clearSpotifySearchResults();
   document.getElementById('data-freshness').classList.add('hidden');
@@ -451,6 +458,10 @@ async function refreshCurrentView() {
   if (currentTab === 'tracks') return loadTopTracks(true);
   if (currentTab === 'artists') return loadTopArtists(true);
   if (currentTab === 'analysis') return (await loadAnalysisTab(true)) !== false;
+  if (currentTab === 'search' && searchQuery.length >= SEARCH_MIN_CHARS) {
+    await runSpotifySearch(searchQuery);
+    return true;
+  }
   // Overview, Recent and Search all rest on the recently-played list.
   const ok = await loadRecentlyPlayed();
   if (ok) renderOverview();
@@ -1061,7 +1072,7 @@ async function loadDashboardOnce() {
     // instead of logging them out over it.
     if (err.isUnauthorized) return false; // endSession already showed sign-in
 
-    if (err.isNetworkError) {
+    if (err.isNetworkError && err.status !== 429) {
       // Can't reach Spotify: fall back to the saved copy if there is one.
       // and either way explain it once, in the global banner (which has Retry).
       if (!appData.profile && restoreFromSnapshot(!err.offline)) return false;
