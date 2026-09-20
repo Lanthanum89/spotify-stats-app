@@ -655,25 +655,32 @@ body {
 
 /* IN-PAGE ANALYSIS NAVIGATION — jumps between the Overview / Listening
    Habits / Taste / Correlations groups. Sticky within the scrolling
-   .main-content, with an opaque-ish backdrop so content doesn't show
-   through once it sticks. scroll-margin-top on each group keeps the
-   jumped-to heading clear of the sticky bar. */
+   .main-content. Kept to a single row at every width — wrapping to a
+   second, uneven row made the sticky bar's height inconsistent, which let
+   it cover the heading it had just been asked to reveal — by scrolling
+   horizontally instead when the pills don't fit. The background is nearly
+   opaque (rather than the panel translucency used elsewhere) specifically
+   so scrolled-past content can't show through a sticky element sitting on
+   top of it. scroll-margin-top on each group keeps the jumped-to heading
+   clear of the bar. */
 .analysis-jump-nav {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
+  overflow-x: auto;
   position: sticky;
   top: 0;
   z-index: 5;
   padding: 10px 0;
   margin-bottom: 20px;
-  background: rgba(11, 10, 15, 0.88);
+  background: rgba(11, 10, 15, 0.97);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
 }
 .analysis-jump-link {
   color: var(--muted);
+  flex-shrink: 0;
   font: 500 0.78rem var(--mono);
   letter-spacing: 0.02em;
   padding: 7px 13px;
@@ -681,6 +688,7 @@ body {
   border-radius: 20px;
   text-decoration: none;
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 .analysis-jump-link:hover {
   color: var(--accent-bright);
