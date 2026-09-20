@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SoundTracks | Your Personal Spotify Insights</title>
+  <!-- Content Security Policy (GitHub Pages can't send headers, so a meta tag).
+       Scripts: this origin only (no inline/eval). Network: Spotify's API and
+       accounts host. Inline styles are still allowed — the app sets style
+       attributes on generated markup. frame-ancestors isn't supported in meta
+       CSPs, so clickjacking protection isn't provided by this. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; media-src https:; connect-src 'self' https://api.spotify.com https://accounts.spotify.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" href="icon-192.png">
   <meta name="theme-color" content="#0b0a0f">
@@ -167,7 +173,7 @@
 
         <div class="sidebar-footer-row">
           <div class="user-badge">
-            <img id="user-avatar" src="https://via.placeholder.com/40" alt="Avatar" class="avatar">
+            <img id="user-avatar" alt="" class="avatar">
             <div class="user-info">
               <span id="user-name" class="name">User Name</span>
               <span id="user-account-type" class="account-type">Premium</span>
@@ -199,7 +205,7 @@
       <!-- TOP NAVIGATION BAR -->
       <header class="content-header">
         <div class="content-title-group">
-          <h2 id="current-tab-title">Now Playing</h2>
+          <h1 id="current-tab-title">Now Playing</h1>
           <p id="data-freshness" class="data-freshness hidden"></p>
         </div>
         
@@ -207,8 +213,8 @@
           <!-- PERSISTENT HEADER SEARCH (all tabs except Search itself, which has its own) -->
           <div class="search-input-wrapper header-search-wrapper" id="header-search-wrapper">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input type="text" id="header-search-input" placeholder="Search Spotify..." autocomplete="off" role="combobox" aria-expanded="false" aria-controls="header-search-dropdown">
-            <div id="header-search-dropdown" class="header-search-dropdown" role="listbox"></div>
+            <input type="text" id="header-search-input" placeholder="Search Spotify..." autocomplete="off" aria-label="Search Spotify" aria-controls="header-search-dropdown">
+            <div id="header-search-dropdown" class="header-search-dropdown" role="group" aria-label="Quick search results"></div>
           </div>
 
           <!-- VIEW TOGGLER (shown for tracks & recent) -->
@@ -272,18 +278,18 @@
           <!-- RIGHT: Up Next / Recently Played / Current Favourites stacked -->
           <div class="now-playing-side-col">
             <div class="panel">
-              <h3>Up Next</h3>
+              <h2>Up Next</h2>
               <div id="overview-queue-list" class="mini-tracks-list">
                 <div class="loading-inline">Nothing queued right now.</div>
               </div>
             </div>
 
             <div class="panel">
-              <h3>Recently Played</h3>
+              <h2>Recently Played</h2>
               <div id="overview-recent-list" class="mini-tracks-list">
                 <!-- JS filled -->
               </div>
-              <button class="btn btn-secondary btn-sm margin-top" onclick="switchTab('recent')">See Recently Played</button>
+              <button type="button" class="btn btn-secondary btn-sm margin-top" data-goto-tab="recent">See Recently Played</button>
             </div>
           </div>
         </div>
@@ -429,7 +435,7 @@
             <div class="panel-heading">
               <div>
                 <span class="panel-kicker">ANALYSIS / SUMMARY</span>
-                <h3>Key Insights</h3>
+                <h2>Key Insights</h2>
               </div>
             </div>
             <ul id="key-insights-list" class="key-insights-list margin-top">
@@ -471,7 +477,7 @@
               <div class="panel-heading">
                 <div>
                   <span class="panel-kicker">ANALYSIS / RECENT PLAYS</span>
-                  <h3>Hourly Listening Activity</h3>
+                  <h2>Hourly Listening Activity</h2>
                 </div>
                 <span class="data-source">last 50 streams</span>
               </div>
@@ -486,7 +492,7 @@
               <div class="panel-heading">
                 <div>
                   <span class="panel-kicker">ANALYSIS / RECENT PLAYS</span>
-                  <h3>Day-of-Week Activity</h3>
+                  <h2>Day-of-Week Activity</h2>
                 </div>
                 <span class="data-source">last 50 streams</span>
               </div>
@@ -524,7 +530,7 @@
             <div class="panel-heading">
               <div>
                 <span class="panel-kicker">ANALYSIS / TOP ARTISTS</span>
-                <h3>Genre Distribution</h3>
+                <h2>Genre Distribution</h2>
               </div>
               <span id="analysis-genres-source" class="data-source">top 50 artist tags</span>
             </div>
@@ -536,7 +542,7 @@
           </div>
           <div class="panel">
             <span class="panel-kicker">PROFILE / SIGNAL</span>
-            <h3>Listening Profile</h3>
+            <h2>Listening Profile</h2>
             <div class="taste-analysis-card">
               <div id="taste-title" class="taste-title">Dynamic Eclectic</div>
               <p id="taste-description" class="taste-desc">Analyzing...</p>
@@ -564,7 +570,7 @@
             <div class="panel-heading">
               <div>
                 <span class="panel-kicker">ANALYSIS / MAINSTREAM</span>
-                <h3>Track Popularity Distribution</h3>
+                <h2>Track Popularity Distribution</h2>
               </div>
               <span id="analysis-popularity-source" class="data-source">top 50 songs</span>
             </div>
@@ -578,7 +584,7 @@
             <div class="panel-heading">
               <div>
                 <span class="panel-kicker">ANALYSIS / MAINSTREAM</span>
-                <h3>Artist Popularity Distribution</h3>
+                <h2>Artist Popularity Distribution</h2>
               </div>
               <span id="analysis-artist-popularity-source" class="data-source">top 50 artists</span>
             </div>
@@ -595,7 +601,7 @@
             <div class="panel-heading">
               <div>
                 <span class="panel-kicker">ANALYSIS / LENGTH</span>
-                <h3>Track Duration Distribution</h3>
+                <h2>Track Duration Distribution</h2>
               </div>
               <span id="analysis-duration-source" class="data-source">top 50 songs</span>
             </div>
@@ -609,7 +615,7 @@
             <div class="panel-heading">
               <div>
                 <span class="panel-kicker">ANALYSIS / ROTATION</span>
-                <h3>Top Contributing Artists</h3>
+                <h2>Top Contributing Artists</h2>
               </div>
               <span id="analysis-contributing-source" class="data-source">top 50 songs</span>
             </div>
@@ -629,7 +635,7 @@
             <div class="panel-heading">
               <div>
                 <span class="panel-kicker">ANALYSIS / QUADRANT</span>
-                <h3>Tracks: Popularity vs. Your Rank</h3>
+                <h2>Tracks: Popularity vs. Your Rank</h2>
               </div>
               <span id="analysis-quadrant-source" class="data-source">top 50 songs</span>
             </div>
@@ -643,7 +649,7 @@
             <div class="panel-heading">
               <div>
                 <span class="panel-kicker">ANALYSIS / QUADRANT</span>
-                <h3>Artists: Popularity vs. Your Rank</h3>
+                <h2>Artists: Popularity vs. Your Rank</h2>
               </div>
               <span id="analysis-artist-quadrant-source" class="data-source">top 50 artists</span>
             </div>
@@ -659,7 +665,7 @@
             <div class="panel-heading">
               <div>
                 <span class="panel-kicker">ANALYSIS / QUADRANT</span>
-                <h3>Tracks: Duration vs. Popularity</h3>
+                <h2>Tracks: Duration vs. Popularity</h2>
               </div>
               <span id="analysis-duration-quadrant-source" class="data-source">top 50 songs</span>
             </div>
@@ -673,7 +679,7 @@
             <div class="panel-heading">
               <div>
                 <span class="panel-kicker">ANALYSIS / QUADRANT</span>
-                <h3>Artists: Followers vs. Popularity</h3>
+                <h2>Artists: Followers vs. Popularity</h2>
               </div>
               <span id="analysis-followers-quadrant-source" class="data-source">top 50 artists</span>
             </div>
@@ -695,7 +701,7 @@
         <div id="recently-played-list-panel" class="panel hidden">
           <div class="panel-header-actions">
             <div>
-              <h3>Recently Played History</h3>
+              <h2>Recently Played History</h2>
               <p class="section-desc">Your last 50 tracks. Total calculated playtime is shown in the Now Playing tab.</p>
             </div>
           </div>
