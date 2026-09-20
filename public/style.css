@@ -140,7 +140,7 @@ body {
 }
 
 .auth-header { text-align: left; }
-.logo-icon { display: none; }
+.logo-icon { display: block; margin-bottom: 22px; }
 .auth-title {
   color: var(--text);
   font: 600 2.15rem var(--mono);
@@ -492,7 +492,7 @@ body {
   border-bottom: 1px solid var(--line);
   border-top: 1px solid var(--line);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   margin-bottom: 18px;
 }
 .metric-block { align-items: flex-start; display: flex; gap: 12px; padding: 18px 20px; }
@@ -1092,15 +1092,18 @@ body {
   .now-playing-hero { grid-template-columns: 1fr; }
 }
 
-/* CARD-LEVEL TIME FILTERS (Analysis cards with individual timeframe selection) */
-.card-filter-container {
+/* GLOBAL TOP-50 TIME RANGE CONTROL (Analysis tab, "Your Top 50 (Selected Range)") */
+.top50-range-control {
   display: flex;
   gap: 6px;
   justify-content: flex-start;
 }
 
-.card-time-filter-btn {
-  padding: 5px 10px;
+.top50-range-btn {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  padding: 6px 12px;
   font-size: 0.75rem;
   font-weight: 500;
   border: 1px solid var(--line);
@@ -1112,16 +1115,43 @@ body {
   font-family: var(--mono);
 }
 
-.card-time-filter-btn:hover {
+.top50-range-btn-icon {
+  display: none;
+  flex-shrink: 0;
+}
+
+.top50-range-btn:hover {
   color: var(--text);
   border-color: var(--accent);
   background: rgba(170, 150, 216, 0.05);
 }
 
-.card-time-filter-btn.active {
+/* Active state is signalled by more than colour alone: filled background,
+   a bolder weight, and a check icon — so it still reads under colour
+   vision deficiency or a low-contrast display. */
+.top50-range-btn.active {
   background: var(--accent);
   color: var(--bg);
   border-color: var(--accent);
+  font-weight: 700;
+}
+
+.top50-range-btn.active .top50-range-btn-icon {
+  display: inline-flex;
+}
+
+.top50-range-status {
+  color: var(--muted);
+  font: 500 0.75rem var(--mono);
+  letter-spacing: 0.04em;
+}
+
+/* Dims the Top 50 cards while a range switch is fetching fresh data, so the
+   old range's numbers are never mistaken for the newly-selected one. */
+.top50-section.is-loading {
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
 }
 
 /* GLOBAL SEARCH TAB */

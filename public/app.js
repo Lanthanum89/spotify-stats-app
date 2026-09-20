@@ -5,19 +5,13 @@ let currentView = 'grid'; // grid, list
 let artistFilter = ''; // Filter string for top artists grid
 let trackFilter = ''; // Filter string for top tracks grid
 
-// Card-level timeframe filters (independent per analysis card)
-const cardRanges = {
-  'genres': 'medium_term',
-  'listening-profile': 'medium_term',
-  'track-popularity': 'medium_term',
-  'artist-popularity': 'medium_term',
-  'duration': 'medium_term',
-  'contributing': 'medium_term',
-  'track-quadrant': 'medium_term',
-  'artist-quadrant': 'medium_term',
-  'duration-quadrant': 'medium_term',
-  'followers-quadrant': 'medium_term'
-};
+// Timeframe for the Analysis tab's "Your Top 50 (Selected Range)" section —
+// one shared range drives every card there, independent of the Top
+// Tracks/Artists tabs' own `currentRange`.
+let analysisRange = 'medium_term';
+// Bumped on every range switch so a slow, superseded fetch can recognise
+// it's stale and skip rendering over the newer selection.
+let analysisRangeToken = 0;
 
 // Audio preview player state
 let activeAudio = null;
@@ -314,14 +308,12 @@ function setupEventListeners() {
       document.querySelectorAll('.time-filter-btn').forEach(btn => btn.classList.remove('active'));
       button.classList.add('active');
       currentRange = button.getAttribute('data-range');
-      
+
       // Reload current tab content with new range
       if (currentTab === 'tracks') {
         loadTopTracks(true);
       } else if (currentTab === 'artists') {
         loadTopArtists(true);
-      } else if (currentTab === 'analysis') {
-        loadAnalysisTab(true);
       }
     });
   });
@@ -344,22 +336,16 @@ function setupEventListeners() {
     });
   });
 
-  // Card-level timeframe filters (Analysis cards with individual ranges)
-  document.querySelectorAll('.card-time-filter-btn').forEach(button => {
-    button.addEventListener('click', async () => {
-      const cardId = button.getAttribute('data-card');
+  // Global timeframe control for the Analysis tab's "Your Top 50 (Selected
+  // Range)" section — one control drives every range-based card there.
+  document.querySelectorAll('.top50-range-btn').forEach(button => {
+    button.addEventListener('click', () => {
       const range = button.getAttribute('data-range');
+      if (range === analysisRange) return;
 
-      // Update the filter state for this card
-      cardRanges[cardId] = range;
-
-      // Update active state for this card's buttons
-      const cardButtons = document.querySelectorAll(`.card-time-filter-btn[data-card="${cardId}"]`);
-      cardButtons.forEach(btn => btn.classList.remove('active'));
-      button.classList.add('active');
-
-      // Fetch data if needed and re-render the specific card
-      await renderAnalysisCardByName(cardId, range);
+      analysisRange = range;
+      updateTop50RangeControl();
+      loadAnalysisTab();
     });
   });
 
@@ -456,6 +442,7 @@ function setupEventListeners() {
 function switchTab(tabId) {
   currentTab = tabId;
   closeHeaderSearchDropdown();
+  updateMiniPlayerVisibility();
 
   // Stop any playing audio preview on tab switch to prevent ghost audio
   if (activeAudio) {
@@ -861,12 +848,22 @@ async function renderNowPlayingActive(data) {
 
 // --- SIDEBAR MINI PLAYER ---
 // Compact echo of the Overview Now Playing panel, shown above the user's
-// name in the sidebar footer: cover, track/artist, and skip controls.
+// name in the sidebar footer: cover, track/artist, and skip controls. Hidden
+// on the Now Playing tab itself (the hero there already shows all of this),
+// shown on every other tab whenever something is actually playing.
+let hasActiveNowPlayingTrack = false;
+
+function updateMiniPlayerVisibility() {
+  const panel = document.getElementById('sidebar-mini-player');
+  if (!panel) return;
+  panel.classList.toggle('hidden', !hasActiveNowPlayingTrack || currentTab === 'overview');
+}
 
 function renderSidebarMiniPlayer(track, cover, artistsName) {
   const panel = document.getElementById('sidebar-mini-player');
   if (!panel) return;
-  panel.classList.remove('hidden');
+  hasActiveNowPlayingTrack = true;
+  updateMiniPlayerVisibility();
 
   const coverEl = document.getElementById('mini-player-cover');
   const trackEl = document.getElementById('mini-player-track');
@@ -877,6 +874,7 @@ function renderSidebarMiniPlayer(track, cover, artistsName) {
 }
 
 function hideSidebarMiniPlayer() {
+  hasActiveNowPlayingTrack = false;
   const panel = document.getElementById('sidebar-mini-player');
   if (panel) panel.classList.add('hidden');
   hideNowPlayingControls();
@@ -1300,43 +1298,79 @@ function renderArtistsList(tbody, filteredItems, allItems) {
 }
 
 // Load data for analysis tab and render
+const TOP50_RANGE_LABELS = { short_term: '4 weeks', medium_term: '6 months', long_term: 'all time' };
+const TOP50_RANGE_HEADINGS = { short_term: 'Last 4 Weeks', medium_term: 'Last 6 Months', long_term: 'All Time' };
+
+// Keeps the global range control's active button and the section heading in
+// sync with `analysisRange`. Called on click and once on initial load.
+function updateTop50RangeControl() {
+  document.querySelectorAll('.top50-range-btn').forEach(btn => {
+    const isActive = btn.getAttribute('data-range') === analysisRange;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', String(isActive));
+  });
+
+  const titleEl = document.getElementById('top50-section-title');
+  if (titleEl) titleEl.textContent = `Your Top 50 · ${TOP50_RANGE_HEADINGS[analysisRange] || 'Last 6 Months'}`;
+}
+
+// Loads (or reuses cached) Top 50 data for the Analysis tab's selected-range
+// section, then renders it. Last-50 (recent-stream) metrics/charts are
+// range-independent and always re-rendered immediately.
 async function loadAnalysisTab(forceReload = false) {
-  const needsArtists = forceReload || !appData.topArtists[currentRange];
-  const needsTracks = forceReload || !appData.topTracks[currentRange];
+  renderLast50AnalysisMetrics();
+  updateTop50RangeControl();
+
+  const range = analysisRange;
+  const requestToken = ++analysisRangeToken;
+  const needsArtists = forceReload || !appData.topArtists[range];
+  const needsTracks = forceReload || !appData.topTracks[range];
+  const section = document.getElementById('top50-section');
+  const statusEl = document.getElementById('top50-range-status');
 
   if (needsArtists || needsTracks) {
-    const chartContainer = document.getElementById('genres-chart-container');
-    const popularityContainer = document.getElementById('popularity-distribution-container');
-    
-    if (chartContainer) chartContainer.innerHTML = '<div class="loading-inline"><div class="spinner" style="height: 30px; width: 30px; margin: 0 auto;"></div></div>';
-    if (popularityContainer) popularityContainer.innerHTML = '<div class="loading-inline"><div class="spinner" style="height: 30px; width: 30px; margin: 0 auto;"></div></div>';
+    if (section) section.classList.add('is-loading');
+    if (statusEl) statusEl.classList.remove('hidden');
 
     try {
       const promises = [];
       if (needsArtists) {
         promises.push(
-          spotifyFetch(`/me/top/artists?time_range=${currentRange}&limit=50`)
+          spotifyFetch(`/me/top/artists?time_range=${range}&limit=50`)
             .then(res => res.json())
-            .then(data => { appData.topArtists[currentRange] = data; })
+            .then(data => { appData.topArtists[range] = data; })
         );
       }
       if (needsTracks) {
         promises.push(
-          spotifyFetch(`/me/top/tracks?time_range=${currentRange}&limit=50`)
+          spotifyFetch(`/me/top/tracks?time_range=${range}&limit=50`)
             .then(res => res.json())
-            .then(data => { appData.topTracks[currentRange] = data; })
+            .then(data => { appData.topTracks[range] = data; })
         );
       }
       await Promise.all(promises);
     } catch (err) {
       console.error('Error fetching analysis data:', err);
-      if (chartContainer) chartContainer.innerHTML = '<div class="loading-inline">Failed to load data.</div>';
-      if (popularityContainer) popularityContainer.innerHTML = '<div class="loading-inline">Failed to load data.</div>';
+      // A newer range switch already owns the loading/error UI — leave it alone.
+      if (requestToken === analysisRangeToken) {
+        if (section) section.classList.remove('is-loading');
+        if (statusEl) statusEl.classList.add('hidden');
+        const chartContainer = document.getElementById('genres-chart-container');
+        const popularityContainer = document.getElementById('popularity-distribution-container');
+        if (chartContainer) chartContainer.innerHTML = '<div class="loading-inline">Failed to load data.</div>';
+        if (popularityContainer) popularityContainer.innerHTML = '<div class="loading-inline">Failed to load data.</div>';
+      }
       return;
     }
   }
 
-  renderAnalysisTab();
+  // A faster, more recent range switch has already rendered — don't let this
+  // stale response overwrite it.
+  if (requestToken !== analysisRangeToken) return;
+
+  if (section) section.classList.remove('is-loading');
+  if (statusEl) statusEl.classList.add('hidden');
+  renderTop50Section(range);
 }
 
 // Update data source label for a specific card
@@ -1357,82 +1391,6 @@ function updateDataSourceLabel(elementId, type, rangeLabel) {
   };
 
   element.textContent = labelMap[type] || `top 50 (${rangeLabel})`;
-}
-
-// Render individual analysis card based on its ID and range
-async function renderAnalysisCardByName(cardId, range) {
-  // Fetch data if not already cached
-  if (!appData.topArtists[range]) {
-    try {
-      const res = await spotifyFetch(`/me/top/artists?time_range=${range}&limit=50`);
-      appData.topArtists[range] = await res.json();
-    } catch (err) {
-      console.error(`Error fetching artists data for range ${range}:`, err);
-      return;
-    }
-  }
-
-  if (!appData.topTracks[range]) {
-    try {
-      const res = await spotifyFetch(`/me/top/tracks?time_range=${range}&limit=50`);
-      appData.topTracks[range] = await res.json();
-    } catch (err) {
-      console.error(`Error fetching tracks data for range ${range}:`, err);
-      return;
-    }
-  }
-
-  const activeArtists = appData.topArtists[range];
-  const activeTracks = appData.topTracks[range];
-
-  // Update data source labels
-  const rangeLabels = {
-    short_term: '4 weeks',
-    medium_term: '6 months',
-    long_term: 'all time'
-  };
-  const rangeLabel = rangeLabels[range] || '6 months';
-
-  // Render the appropriate card based on cardId
-  switch (cardId) {
-    case 'genres':
-    case 'listening-profile':
-      renderGenreDistributionCard(activeArtists, rangeLabel);
-      updateDataSourceLabel('analysis-genres-source', 'genres', rangeLabel);
-      break;
-    case 'track-popularity':
-      renderPopularityDistribution(activeTracks);
-      updateDataSourceLabel('analysis-popularity-source', 'track-popularity', rangeLabel);
-      break;
-    case 'artist-popularity':
-      renderArtistPopularityDistribution(activeArtists);
-      updateDataSourceLabel('analysis-artist-popularity-source', 'artist-popularity', rangeLabel);
-      break;
-    case 'duration':
-      renderDurationDistribution(activeTracks);
-      updateDataSourceLabel('analysis-duration-source', 'duration', rangeLabel);
-      break;
-    case 'contributing':
-      renderTopContributingArtists(activeTracks);
-      updateDataSourceLabel('analysis-contributing-source', 'contributing', rangeLabel);
-      break;
-    case 'track-quadrant':
-      renderPopularityRankQuadrant(activeTracks);
-      updateDataSourceLabel('analysis-quadrant-source', 'track-quadrant', rangeLabel);
-      break;
-    case 'artist-quadrant':
-      renderArtistRankQuadrant(activeArtists);
-      updateDataSourceLabel('analysis-artist-quadrant-source', 'artist-quadrant', rangeLabel);
-      break;
-    case 'duration-quadrant':
-      renderDurationPopularityQuadrant(activeTracks);
-      updateDataSourceLabel('analysis-duration-quadrant-source', 'duration-quadrant', rangeLabel);
-      break;
-    case 'followers-quadrant':
-      renderFollowersPopularityQuadrant(activeArtists);
-      updateDataSourceLabel('analysis-followers-quadrant-source', 'followers-quadrant', rangeLabel);
-      break;
-  }
 }
 
 // Render genre distribution and listening profile cards
@@ -1524,169 +1482,37 @@ function renderGenreDistributionCard(activeArtists, rangeLabel) {
   }
 }
 
-// RENDER GENRES TAB
-function renderAnalysisTab() {
-  const chartContainer = document.getElementById('genres-chart-container');
-  const donutContainer = document.getElementById('genre-donut');
-  const tasteTitle = document.getElementById('taste-title');
-  const tasteDesc = document.getElementById('taste-description');
-  const primaryGenreVal = document.getElementById('genre-stat-primary');
-  const uniqueGenresVal = document.getElementById('genre-stat-unique');
-  const topShareVal = document.getElementById('genre-stat-share');
-
-  // We analyze the genres of the active Top Artists list
-  const activeArtists = appData.topArtists[currentRange] || appData.topArtists['medium_term'];
-
-  if (!activeArtists || !activeArtists.items || activeArtists.items.length === 0) {
-    chartContainer.innerHTML = '<div class="loading-inline">Not enough artist data to display genres. Please listen to more music first.</div>';
-    donutContainer.innerHTML = '';
-    return;
-  }
-
-  const genreCounts = {};
-  activeArtists.items.forEach(artist => {
-    artist.genres.forEach(genre => {
-      genreCounts[genre] = (genreCounts[genre] || 0) + 1;
-    });
-  });
-
-  const sortedGenres = Object.entries(genreCounts)
-    .sort((a, b) => b[1] - a[1]);
-
-  const totalHits = Object.values(genreCounts).reduce((a, b) => a + b, 0);
-  const uniqueCount = sortedGenres.length;
-
-  primaryGenreVal.textContent = sortedGenres.length > 0 ? sortedGenres[0][0] : '-';
-  uniqueGenresVal.textContent = uniqueCount;
-  topShareVal.textContent = sortedGenres.length > 0
-    ? `${Math.round((sortedGenres[0][1] / totalHits) * 100)}%`
-    : '0%';
-
+// Last 50 Streams metrics + charts — always sourced from recentlyPlayed,
+// independent of the Top 50 section's selected range.
+function renderLast50AnalysisMetrics() {
   const recentItems = appData.recentlyPlayed?.items || [];
   const recentDurationMs = recentItems.reduce((total, item) => total + item.track.duration_ms, 0);
   const averageDurationMs = recentItems.length > 0 ? recentDurationMs / recentItems.length : 0;
   document.getElementById('genre-metric-plays').textContent = recentItems.length.toLocaleString('en-GB');
   document.getElementById('genre-metric-hours').textContent = formatHours(recentDurationMs);
   document.getElementById('genre-metric-average').textContent = formatDuration(averageDurationMs);
-  document.getElementById('genre-metric-unique').textContent = uniqueCount.toLocaleString('en-GB');
 
-  // Render a focused top-six distribution and group the long tail.
-  chartContainer.innerHTML = '';
-  const displayGenres = sortedGenres.slice(0, 6);
-
-  displayGenres.forEach(([genre, count], index) => {
-    const percentage = Math.round((count / totalHits) * 100);
-    const bar = document.createElement('div');
-    bar.className = 'genre-bar-container interactive-genre-bar';
-    bar.title = `Click to filter artists by ${genre}`;
-    bar.innerHTML = `
-      <div class="genre-bar-info">
-        <span class="genre-bar-name">${String(index + 1).padStart(2, '0')} / ${genre}</span>
-        <span class="genre-bar-percentage">${count} artist${count > 1 ? 's' : ''} · ${percentage}%</span>
-      </div>
-      <div class="genre-bar-wrapper">
-        <div class="genre-bar-fill" style="width: ${percentage}%"></div>
-      </div>
-    `;
-    bar.addEventListener('click', () => {
-      applyGenreFilterToArtists(genre);
-    });
-    chartContainer.appendChild(bar);
-  });
-
-  renderGenreDonut(sortedGenres, totalHits);
-
-  // Taste Classification Logic
-  if (sortedGenres.length === 0) {
-    tasteTitle.textContent = 'Insufficient signal';
-    tasteDesc.textContent = 'Listen to more artists on Spotify to build a useful genre profile.';
-    return;
-  }
-
-  const topGenre = sortedGenres[0][0].toLowerCase();
-  
-  // Custom classification based on top genre
-  if (topGenre.includes('rock') || topGenre.includes('metal') || topGenre.includes('grunge')) {
-    tasteTitle.textContent = 'High-gain architecture';
-    tasteDesc.textContent = 'Guitar-led, rhythm-forward listening with a preference for weight, texture, and strong band dynamics.';
-  } else if (topGenre.includes('pop') || topGenre.includes('dance')) {
-    tasteTitle.textContent = 'Hook-driven systems';
-    tasteDesc.textContent = 'Clean production, immediate melodies, and high-energy arrangements dominate your current listening profile.';
-  } else if (topGenre.includes('rap') || topGenre.includes('hip hop') || topGenre.includes('trap')) {
-    tasteTitle.textContent = 'Low-end focused';
-    tasteDesc.textContent = 'Bass, cadence, and vocal flow are the strongest signals across your top-artist set.';
-  } else if (topGenre.includes('indie') || topGenre.includes('alternative') || topGenre.includes('folk')) {
-    tasteTitle.textContent = 'Independent signal';
-    tasteDesc.textContent = 'Atmospheric arrangements, organic production, and introspective songwriting recur across your taste profile.';
-  } else if (topGenre.includes('electronic') || topGenre.includes('house') || topGenre.includes('techno') || topGenre.includes('edm')) {
-    tasteTitle.textContent = 'Synthetic runtime';
-    tasteDesc.textContent = 'Repetition, detailed sound design, and electronic rhythm form the core of your listening environment.';
-  } else if (topGenre.includes('jazz') || topGenre.includes('blues') || topGenre.includes('soul') || topGenre.includes('r&b')) {
-    tasteTitle.textContent = 'Harmonic depth';
-    tasteDesc.textContent = 'Vocal detail, expressive harmony, and groove carry more weight than genre boundaries in your listening.';
-  } else {
-    tasteTitle.textContent = 'Distributed taste';
-    tasteDesc.textContent = 'Your top artists span a broad set of sub-genres without a single category overwhelming the rest.';
-  }
-
-  // Update data source labels dynamically based on selected range
-  const rangeLabels = {
-    short_term: '4 weeks',
-    medium_term: '6 months',
-    long_term: 'all time'
-  };
-  const rangeLabel = rangeLabels[currentRange] || '6 months';
-  
-  const genresSource = document.getElementById('analysis-genres-source');
-  if (genresSource) {
-    genresSource.textContent = `top 50 artists (${rangeLabel})`;
-  }
-  
-  const popularitySource = document.getElementById('analysis-popularity-source');
-  if (popularitySource) {
-    popularitySource.textContent = `top 50 songs (${rangeLabel})`;
-  }
-
-  const quadrantSource = document.getElementById('analysis-quadrant-source');
-  if (quadrantSource) {
-    quadrantSource.textContent = `top 50 songs (${rangeLabel})`;
-  }
-
-  const artistPopularitySource = document.getElementById('analysis-artist-popularity-source');
-  if (artistPopularitySource) {
-    artistPopularitySource.textContent = `top 50 artists (${rangeLabel})`;
-  }
-
-  const durationSource = document.getElementById('analysis-duration-source');
-  if (durationSource) {
-    durationSource.textContent = `top 50 songs (${rangeLabel})`;
-  }
-
-  const contributingSource = document.getElementById('analysis-contributing-source');
-  if (contributingSource) {
-    contributingSource.textContent = `top 50 songs (${rangeLabel})`;
-  }
-
-  const artistQuadrantSource = document.getElementById('analysis-artist-quadrant-source');
-  if (artistQuadrantSource) {
-    artistQuadrantSource.textContent = `top 50 artists (${rangeLabel})`;
-  }
-
-  const durationQuadrantSource = document.getElementById('analysis-duration-quadrant-source');
-  if (durationQuadrantSource) {
-    durationQuadrantSource.textContent = `top 50 songs (${rangeLabel})`;
-  }
-
-  const followersQuadrantSource = document.getElementById('analysis-followers-quadrant-source');
-  if (followersQuadrantSource) {
-    followersQuadrantSource.textContent = `top 50 artists (${rangeLabel})`;
-  }
-
-  // Draw the additional charts on this tab!
   renderHourlyActivityChart(appData.recentlyPlayed);
   renderDayOfWeekActivityChart(appData.recentlyPlayed);
+}
 
-  const activeTracks = appData.topTracks[currentRange] || appData.topTracks['medium_term'];
+// Renders every card in "Your Top 50 (Selected Range)" from the one shared range.
+function renderTop50Section(range) {
+  const activeArtists = appData.topArtists[range];
+  const activeTracks = appData.topTracks[range];
+  const rangeLabel = TOP50_RANGE_LABELS[range] || '6 months';
+
+  renderGenreDistributionCard(activeArtists, rangeLabel);
+  updateDataSourceLabel('analysis-genres-source', 'genres', rangeLabel);
+  updateDataSourceLabel('analysis-popularity-source', 'track-popularity', rangeLabel);
+  updateDataSourceLabel('analysis-artist-popularity-source', 'artist-popularity', rangeLabel);
+  updateDataSourceLabel('analysis-duration-source', 'duration', rangeLabel);
+  updateDataSourceLabel('analysis-contributing-source', 'contributing', rangeLabel);
+  updateDataSourceLabel('analysis-quadrant-source', 'track-quadrant', rangeLabel);
+  updateDataSourceLabel('analysis-artist-quadrant-source', 'artist-quadrant', rangeLabel);
+  updateDataSourceLabel('analysis-duration-quadrant-source', 'duration-quadrant', rangeLabel);
+  updateDataSourceLabel('analysis-followers-quadrant-source', 'followers-quadrant', rangeLabel);
+
   renderPopularityDistribution(activeTracks);
   renderArtistPopularityDistribution(activeArtists);
   renderDurationDistribution(activeTracks);
