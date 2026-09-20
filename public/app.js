@@ -32,28 +32,9 @@ function initRouting() {
   window.addEventListener('popstate', () => {
     const hash = window.location.hash;
 
-    // The Analysis tab's own in-page jump nav (#analysis-group-x) also
-    // changes the hash and also fires popstate in most browsers — an
-    // unrelated, pre-existing same-page-anchor feature. Native scroll-to-
-    // anchor only works if the Analysis pane is actually the visible one,
-    // though (a hidden pane can't be scrolled), so if some other tab is
-    // showing, switch to Analysis first and then finish the scroll
-    // ourselves, since the browser's own attempt happened before that
-    // pane existed to scroll within.
-    const analysisAnchorMatch = hash.match(/^#(analysis-group-[\w-]+)$/);
-    if (analysisAnchorMatch) {
-      if (currentTab !== 'analysis') {
-        isApplyingHistoryNavigation = true;
-        switchTab('analysis');
-        isApplyingHistoryNavigation = false;
-      }
-      document.getElementById(analysisAnchorMatch[1])?.scrollIntoView();
-      return;
-    }
-
-    // Otherwise, only react to history entries shaped like one of *our*
-    // routes (#/tabname) or empty; anything else is left alone rather than
-    // being misread as "not a valid tab route" and bounced back to Overview.
+    // Only react to history entries shaped like one of *our* routes
+    // (#/tabname) or empty; anything else is left alone rather than being
+    // misread as "not a valid tab route" and bounced back to Overview.
     if (hash !== '' && !/^#\/\w+$/.test(hash)) return;
 
     const tabId = tabIdFromHash() || 'overview';
