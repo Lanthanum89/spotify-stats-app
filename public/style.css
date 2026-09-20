@@ -658,11 +658,13 @@ body {
    .main-content. Kept to a single row at every width — wrapping to a
    second, uneven row made the sticky bar's height inconsistent, which let
    it cover the heading it had just been asked to reveal — by scrolling
-   horizontally instead when the pills don't fit. The background is nearly
-   opaque (rather than the panel translucency used elsewhere) specifically
-   so scrolled-past content can't show through a sticky element sitting on
-   top of it. scroll-margin-top on each group keeps the jumped-to heading
-   clear of the bar. */
+   horizontally instead when the pills don't fit. Background is fully
+   solid (not the translucent-panel look used elsewhere) and there's no
+   backdrop-filter: WebKit has long-standing bugs pairing position:sticky
+   with backdrop-filter (the sticky element's repaint lags behind scroll,
+   showing torn/ghosted content around it) — a plain opaque fill sidesteps
+   that instead of chasing it. scroll-margin-top on each group keeps the
+   jumped-to heading clear of the bar. */
 .analysis-jump-nav {
   display: flex;
   flex-wrap: nowrap;
@@ -673,10 +675,9 @@ body {
   z-index: 5;
   padding: 10px 0;
   margin-bottom: 20px;
-  background: rgba(11, 10, 15, 0.97);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
+  will-change: transform;
 }
 .analysis-jump-link {
   color: var(--muted);
