@@ -24,6 +24,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Unit tests
+        run: npm test
+
       # Names the service worker's cache after this commit, so every deploy
       # gets a fresh, self-contained shell cache (see BUILD_ID in sw.js).
       # Fails the deploy if the placeholder is missing rather than shipping

@@ -112,6 +112,8 @@ let nowPlayingState = {
 let nowPlayingPollCount = 0;
 let miniPlayerControlPending = false;
 let nowPlayingConsecutiveFailures = 0;
+let nowPlayingBackoffTicks = 0;
+const NOW_PLAYING_BACKOFF_EVERY = 6; // polls skipped between checks while failing
 const NOW_PLAYING_FAILURE_THRESHOLD = 3; // show a visible error after this many polls in a row fail
 
 // --- Spotify API Helper ---
@@ -241,6 +243,7 @@ function clearAccountState() {
   });
   clearTimeout(searchDebounceTimer);
   clearTimeout(headerSearchDebounceTimer);
+  clearTimeout(headerSearchAnnounceTimer);
   hideAllControlErrors();
   hideSearchPlayError();
   miniPlayerControlPending = false;
@@ -526,9 +529,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   initConnectivity();
   checkAuthStatus();
 
-  // Card-level "Retry" buttons (see localErrorHtml)
+  // Card-level "Retry" buttons (see localErrorHtml) and in-page tab links
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-retry-load]')) refreshCurrentView();
+    const goto = e.target.closest('[data-goto-tab]');
+    if (goto) switchTab(goto.dataset.gotoTab);
   });
 
   // Now Playing's own "Retry" button (shown after repeated poll failures)
@@ -980,9 +985,9 @@ function renderUserBar(profile) {
   document.getElementById('user-name').textContent = profile.display_name;
   const avatarUrl = profile.images && profile.images.length > 0
     ? profile.images[0].url
-    : 'https://via.placeholder.com/40';
+    : PLACEHOLDER_IMG;
   const avatar = document.getElementById('user-avatar');
-  avatar.src = avatarUrl;
+  avatar.src = httpsUrl(avatarUrl, PLACEHOLDER_IMG);
   avatar.alt = 'Avatar';
   document.getElementById('user-account-type').textContent = String(profile.product || '').toUpperCase();
 }
@@ -1108,16 +1113,16 @@ function renderOverview() {
 function buildMiniTrackItem(track, metaHtml) {
   const cover = track.album && track.album.images && track.album.images.length > 0
     ? track.album.images[0].url
-    : 'https://via.placeholder.com/44';
+    : PLACEHOLDER_IMG;
   const artistsName = (track.artists || []).map(a => a.name).join(', ');
 
   const div = document.createElement('div');
   div.className = 'mini-track-item';
   div.innerHTML = `
-    <img class="mini-track-cover" src="${cover}" alt="${track.name}">
+    <img class="mini-track-cover" loading="lazy" decoding="async" src="${attrUrl(cover, PLACEHOLDER_IMG)}" alt="${escapeHtml(track.name)}">
     <div class="mini-track-info">
-      <span class="mini-track-title">${track.name}</span>
-      <span class="mini-track-artist">${artistsName}</span>
+      <span class="mini-track-title">${escapeHtml(track.name)}</span>
+      <span class="mini-track-artist">${escapeHtml(artistsName)}</span>
     </div>
     ${metaHtml || ''}
   `;
@@ -1257,6 +1262,16 @@ async function pollNowPlaying() {
   // Hold polling while Spotify has asked us to back off.
   if (Date.now() < rateLimitedUntil) return;
 
+  // After repeated failures the error card (with Retry) is showing; keep
+  // checking, but only every ~30s instead of every poll, so an outage isn't
+  // hammered. Retry resets the counter.
+  if (nowPlayingConsecutiveFailures >= NOW_PLAYING_FAILURE_THRESHOLD) {
+    nowPlayingBackoffTicks = (nowPlayingBackoffTicks + 1) % NOW_PLAYING_BACKOFF_EVERY;
+    if (nowPlayingBackoffTicks !== 0) return;
+  } else {
+    nowPlayingBackoffTicks = 0;
+  }
+
   let response;
   try {
     response = await spotifyFetch('/me/player');
@@ -1368,7 +1383,7 @@ async function renderNowPlayingActive(data) {
 
   const cover = track.album.images && track.album.images.length > 0
     ? track.album.images[0].url
-    : 'https://via.placeholder.com/64';
+    : PLACEHOLDER_IMG;
   const artistsName = track.artists.map((a) => a.name).join(', ');
 
   if (isNewTrack || !document.getElementById('now-playing-track')) {
@@ -1377,9 +1392,9 @@ async function renderNowPlayingActive(data) {
     document.getElementById('now-playing-content').innerHTML = `
       <div class="now-playing-body">
         <div class="now-playing-info">
-          <a id="now-playing-track" class="now-playing-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="${track.name}">${track.name}</a>
-          <span class="now-playing-artist">${artistsName}</span>
-          <span id="now-playing-context" class="now-playing-context">${nowPlayingState.contextName ? `Playing from: ${nowPlayingState.contextName}` : ''}</span>
+          <a id="now-playing-track" class="now-playing-title" href="${attrUrl(spotifyUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(track.name)}">${escapeHtml(track.name)}</a>
+          <span class="now-playing-artist">${escapeHtml(artistsName)}</span>
+          <span id="now-playing-context" class="now-playing-context">${nowPlayingState.contextName ? `Playing from: ${escapeHtml(nowPlayingState.contextName)}` : ''}</span>
           <div class="now-playing-progress-wrapper">
             <div class="now-playing-progress-bar"><div id="now-playing-progress-fill" class="now-playing-progress-fill"></div></div>
             <div class="now-playing-times">
@@ -1425,7 +1440,7 @@ function renderSidebarMiniPlayer(track, cover, artistsName) {
   const coverEl = document.getElementById('mini-player-cover');
   const trackEl = document.getElementById('mini-player-track');
   const artistEl = document.getElementById('mini-player-artist');
-  if (coverEl) { coverEl.src = cover; coverEl.alt = track.name; }
+  if (coverEl) { coverEl.src = httpsUrl(cover, PLACEHOLDER_IMG); coverEl.alt = track.name; }
   if (trackEl) { trackEl.textContent = track.name; trackEl.title = track.name; }
   if (artistEl) { artistEl.textContent = artistsName; artistEl.title = artistsName; }
 }
@@ -1448,7 +1463,7 @@ function renderNowPlayingArtTile(cover, trackName) {
   const img = document.getElementById('now-playing-cover-large');
   const placeholder = document.getElementById('now-playing-art-placeholder');
   if (!img || !placeholder) return;
-  img.src = cover;
+  img.src = httpsUrl(cover, PLACEHOLDER_IMG);
   img.alt = trackName;
   img.classList.remove('hidden');
   placeholder.classList.add('hidden');
@@ -1674,7 +1689,7 @@ function renderTopTracks(data) {
       const originalRank = items.findIndex(t => t.id === track.id) + 1;
       const cover = track.album.images && track.album.images.length > 0 
         ? track.album.images[0].url 
-        : 'https://via.placeholder.com/48';
+        : PLACEHOLDER_IMG;
       const artistsName = track.artists.map(a => a.name).join(', ');
       const spotifyUrl = track.external_urls.spotify;
       const albumUrl = track.album.external_urls.spotify;
@@ -1684,15 +1699,15 @@ function renderTopTracks(data) {
         <td>${originalRank}</td>
         <td>
           <div class="track-row-cell">
-            <img class="track-row-cover" src="${cover}" alt="${track.name}">
+            <img class="track-row-cover" loading="lazy" decoding="async" src="${attrUrl(cover, PLACEHOLDER_IMG)}" alt="${escapeHtml(track.name)}">
             <div class="track-row-details">
-              <a class="track-row-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer">${track.name}</a>
-              <span class="track-row-artist">${artistsName}</span>
+              <a class="track-row-title" href="${attrUrl(spotifyUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(track.name)}</a>
+              <span class="track-row-artist">${escapeHtml(artistsName)}</span>
             </div>
           </div>
         </td>
         <td>
-          <a class="album-link" href="${albumUrl}" target="_blank" rel="noopener noreferrer">${track.album.name}</a>
+          <a class="album-link" href="${attrUrl(albumUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(track.album.name)}</a>
         </td>
         <td aria-label="Popularity: ${track.popularity}%">
           <div class="popularity-meter" title="${track.popularity}% popularity">
@@ -1782,7 +1797,7 @@ function renderArtistsGrid(grid, filteredItems, allItems) {
     const originalRank = allItems.findIndex(a => a.id === artist.id) + 1;
     const photo = artist.images && artist.images.length > 0
       ? artist.images[0].url
-      : 'https://via.placeholder.com/150';
+      : PLACEHOLDER_IMG;
     const mainGenre = artist.genres && artist.genres.length > 0 ? artist.genres[0] : 'Various';
     const spotifyUrl = artist.external_urls.spotify;
 
@@ -1790,16 +1805,16 @@ function renderArtistsGrid(grid, filteredItems, allItems) {
     div.className = 'track-card'; // Reuse track card class to match layout exactly
     div.innerHTML = `
       <div class="track-card-cover-container">
-        <img class="track-card-cover" src="${photo}" alt="${escapeHtml(artist.name)}">
+        <img class="track-card-cover" loading="lazy" decoding="async" src="${attrUrl(photo, PLACEHOLDER_IMG)}" alt="${escapeHtml(artist.name)}">
         <div class="track-card-play-overlay">
-          <a class="btn-play-preview btn-spotify-link" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="Open in Spotify" aria-label="Open ${escapeHtml(artist.name)} on Spotify">
+          <a class="btn-play-preview btn-spotify-link" href="${attrUrl(spotifyUrl)}" target="_blank" rel="noopener noreferrer" title="Open in Spotify" aria-label="Open ${escapeHtml(artist.name)} on Spotify">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.565.387-.86.207-2.377-1.454-5.37-1.783-8.894-.982-.336.077-.67-.137-.747-.473-.077-.337.137-.67.473-.748 3.854-.88 7.15-.502 9.822 1.135.296.18.387.565.206.86zm1.223-2.72c-.227.367-.707.487-1.074.26-2.72-1.672-6.866-2.155-10.073-1.182-.413.125-.847-.107-.972-.52-.125-.413.108-.847.52-.972 3.666-1.112 8.225-.573 11.338 1.34.368.226.488.706.26 1.074zm.107-2.825C14.502 8.84 9.17 8.663 6.074 9.603c-.522.158-1.074-.142-1.233-.664-.158-.522.142-1.074.664-1.233 3.563-1.082 9.44-.88 13.34 1.436.47.278.623.882.345 1.352-.278.47-.882.622-1.352.345z"/></svg>
           </a>
         </div>
         <span class="track-card-rank">#${originalRank}</span>
       </div>
       <div class="track-card-details">
-        <a class="track-card-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(artist.name)}">${escapeHtml(artist.name)}</a>
+        <a class="track-card-title" href="${attrUrl(spotifyUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(artist.name)}">${escapeHtml(artist.name)}</a>
         <span class="track-card-artist" style="text-transform: capitalize;">${escapeHtml(mainGenre)}</span>
         <span class="track-card-album">${formatFollowers(artist.followers.total)} followers</span>
         <div class="track-card-meta">
@@ -1824,7 +1839,7 @@ function renderArtistsList(tbody, filteredItems, allItems) {
     const originalRank = allItems.findIndex(a => a.id === artist.id) + 1;
     const photo = artist.images && artist.images.length > 0
       ? artist.images[0].url
-      : 'https://via.placeholder.com/48';
+      : PLACEHOLDER_IMG;
     const mainGenre = artist.genres && artist.genres.length > 0 ? artist.genres[0] : 'Various';
     const spotifyUrl = artist.external_urls.spotify;
 
@@ -1833,13 +1848,13 @@ function renderArtistsList(tbody, filteredItems, allItems) {
       <td>${originalRank}</td>
       <td>
         <div class="track-row-cell">
-          <img class="track-row-cover" src="${photo}" alt="${artist.name}" style="border-radius: 50%;">
+          <img class="track-row-cover" loading="lazy" decoding="async" src="${attrUrl(photo, PLACEHOLDER_IMG)}" alt="${escapeHtml(artist.name)}" style="border-radius: 50%;">
           <div class="track-row-details">
-            <a class="track-row-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer">${artist.name}</a>
+            <a class="track-row-title" href="${attrUrl(spotifyUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(artist.name)}</a>
           </div>
         </div>
       </td>
-      <td style="text-transform: capitalize;">${mainGenre}</td>
+      <td style="text-transform: capitalize;">${escapeHtml(mainGenre)}</td>
       <td aria-label="Followers: ${formatFollowers(artist.followers.total)}">${formatFollowers(artist.followers.total)}</td>
       <td style="text-align: right;" aria-label="Popularity: ${artist.popularity}%">
         <div class="popularity-info" style="justify-content: flex-end;">
@@ -2175,7 +2190,7 @@ function renderGenreDonut(sortedGenres, totalHits) {
         stroke-dashoffset="${-offset}"
         transform="rotate(-90 100 100)"
       >
-        <title>${genre}: ${Math.round(fraction * 100)}%</title>
+        <title>${escapeHtml(genre)}: ${Math.round(fraction * 100)}%</title>
       </circle>`;
     offset += dash;
     return circle;
@@ -2240,7 +2255,7 @@ function renderRecentlyPlayed(data) {
       const track = item.track;
       const cover = track.album.images && track.album.images.length > 0 
         ? track.album.images[0].url 
-        : 'https://via.placeholder.com/48';
+        : PLACEHOLDER_IMG;
       const artistsName = track.artists.map(a => a.name).join(', ');
       const spotifyUrl = track.external_urls.spotify;
       const albumUrl = track.album.external_urls.spotify;
@@ -2250,15 +2265,15 @@ function renderRecentlyPlayed(data) {
         <td>${index + 1}</td>
         <td>
           <div class="track-row-cell">
-            <img class="track-row-cover" src="${cover}" alt="${track.name}">
+            <img class="track-row-cover" loading="lazy" decoding="async" src="${attrUrl(cover, PLACEHOLDER_IMG)}" alt="${escapeHtml(track.name)}">
             <div class="track-row-details">
-              <a class="track-row-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer">${track.name}</a>
-              <span class="track-row-artist">${artistsName}</span>
+              <a class="track-row-title" href="${attrUrl(spotifyUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(track.name)}</a>
+              <span class="track-row-artist">${escapeHtml(artistsName)}</span>
             </div>
           </div>
         </td>
         <td>
-          <a class="album-link" href="${albumUrl}" target="_blank" rel="noopener noreferrer">${track.album.name}</a>
+          <a class="album-link" href="${attrUrl(albumUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(track.album.name)}</a>
         </td>
         <td aria-label="Played: ${formatRelativeTime(item.played_at)}">
           <span class="played-at-time">${formatRelativeTime(item.played_at)}</span>
@@ -2288,7 +2303,7 @@ function renderTracksGrid(container, items, type) {
     
     const cover = track.album.images && track.album.images.length > 0 
       ? track.album.images[0].url 
-      : 'https://via.placeholder.com/150';
+      : PLACEHOLDER_IMG;
     const artistsName = track.artists.map(a => a.name).join(', ');
     const spotifyUrl = track.external_urls.spotify;
     
@@ -2300,11 +2315,11 @@ function renderTracksGrid(container, items, type) {
     
     const previewLabel = isPlayingThis ? `Pause preview of ${escapeHtml(track.name)}` : `Play preview of ${escapeHtml(track.name)}`;
     const playButton = track.preview_url
-      ? `<button type="button" class="btn-play-preview" data-preview-url="${track.preview_url}" data-track-name="${escapeHtml(track.name)}" title="Play preview" aria-label="${previewLabel}" aria-pressed="${isPlayingThis}">
+      ? `<button type="button" class="btn-play-preview" data-preview-url="${attrUrl(track.preview_url)}" data-track-name="${escapeHtml(track.name)}" title="Play preview" aria-label="${previewLabel}" aria-pressed="${Boolean(isPlayingThis)}">
            <svg class="${btnIconClass}" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
            <svg class="${btnPauseClass}" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
          </button>`
-      : `<a class="btn-play-preview btn-spotify-link" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="Open in Spotify" aria-label="Open ${escapeHtml(track.name)} on Spotify">
+      : `<a class="btn-play-preview btn-spotify-link" href="${attrUrl(spotifyUrl)}" target="_blank" rel="noopener noreferrer" title="Open in Spotify" aria-label="Open ${escapeHtml(track.name)} on Spotify">
            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.565.387-.86.207-2.377-1.454-5.37-1.783-8.894-.982-.336.077-.67-.137-.747-.473-.077-.337.137-.67.473-.748 3.854-.88 7.15-.502 9.822 1.135.296.18.387.565.206.86zm1.223-2.72c-.227.367-.707.487-1.074.26-2.72-1.672-6.866-2.155-10.073-1.182-.413.125-.847-.107-.972-.52-.125-.413.108-.847.52-.972 3.666-1.112 8.225-.573 11.338 1.34.368.226.488.706.26 1.074zm.107-2.825C14.502 8.84 9.17 8.663 6.074 9.603c-.522.158-1.074-.142-1.233-.664-.158-.522.142-1.074.664-1.233 3.563-1.082 9.44-.88 13.34 1.436.47.278.623.882.345 1.352-.278.47-.882.622-1.352.345z"/></svg>
          </a>`;
 
@@ -2320,7 +2335,7 @@ function renderTracksGrid(container, items, type) {
     div.className = cardClass;
     div.innerHTML = `
       <div class="track-card-cover-container">
-        <img class="track-card-cover" src="${cover}" alt="${escapeHtml(track.name)}">
+        <img class="track-card-cover" loading="lazy" decoding="async" src="${attrUrl(cover, PLACEHOLDER_IMG)}" alt="${escapeHtml(track.name)}">
         <div class="track-card-play-overlay">
           ${playButton}
         </div>
@@ -2332,7 +2347,7 @@ function renderTracksGrid(container, items, type) {
         </div>
       </div>
       <div class="track-card-details">
-        <a class="track-card-title" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(track.name)}">${escapeHtml(track.name)}</a>
+        <a class="track-card-title" href="${attrUrl(spotifyUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(track.name)}">${escapeHtml(track.name)}</a>
         <span class="track-card-artist" title="${escapeHtml(artistsName)}">${escapeHtml(artistsName)}</span>
         <span class="track-card-album" title="${escapeHtml(track.album.name)}">${escapeHtml(track.album.name)}</span>
         <div class="track-card-meta">
@@ -2362,7 +2377,10 @@ function renderTracksGrid(container, items, type) {
 }
 
 // TOGGLE AUDIO PREVIEW PLAYBACK
-function toggleAudioPreview(previewUrl, button, card) {
+function toggleAudioPreview(rawPreviewUrl, button, card) {
+  // Validate at the playback boundary, whatever the caller passed in.
+  const previewUrl = httpsUrl(rawPreviewUrl, null);
+  if (!previewUrl) return;
   const playIcon = button.querySelector('.play-icon');
   const pauseIcon = button.querySelector('.pause-icon');
   const eq = card.querySelector('.playing-equalizer');
@@ -2502,8 +2520,6 @@ function renderHourlyActivityChart(recent) {
         fill="${barColor}"
         opacity="0.8"
         style="transition: all 0.2s ease-in-out; cursor: pointer;"
-        onmouseover="this.setAttribute('opacity', '1'); this.setAttribute('fill', 'var(--accent-bright)')"
-        onmouseout="this.setAttribute('opacity', '0.8'); this.setAttribute('fill', '${barColor}')"
       ></rect>
     `;
   });
@@ -2650,8 +2666,6 @@ function renderDayOfWeekActivityChart(recent) {
         fill="${barColor}"
         opacity="0.8"
         style="transition: all 0.2s ease-in-out; cursor: pointer;"
-        onmouseover="this.setAttribute('opacity', '1'); this.setAttribute('fill', 'var(--accent-bright)')"
-        onmouseout="this.setAttribute('opacity', '0.8'); this.setAttribute('fill', '${barColor}')"
       ></rect>
     `;
 
@@ -3120,6 +3134,7 @@ let headerSearchOpen = false;
 let headerSearchLocalResults = { tracks: [], artists: [] };
 let headerSearchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
 let headerSearchDebounceTimer = null;
+let headerSearchAnnounceTimer = null;
 let headerSearchRequestSeq = 0;
 
 function initSearchTab() {
@@ -3279,6 +3294,14 @@ function renderHeaderSearchDropdown(query) {
   footer.innerHTML = `<span>View all results for "${escapeHtml(query)}"</span><span>&crarr; Enter</span>`;
   footer.addEventListener('click', commitHeaderSearch);
   dropdown.appendChild(footer);
+
+  // The dropdown re-renders for the local matches and again when the live
+  // results land; announce once, after it settles.
+  const total = localItems.length + liveItems.length;
+  clearTimeout(headerSearchAnnounceTimer);
+  headerSearchAnnounceTimer = setTimeout(() => {
+    SoundTracksNotices.announce(total > 0 ? `${total} quick result${total !== 1 ? 's' : ''}. Press Enter to see all.` : 'No quick matches.');
+  }, 800);
 }
 
 function buildHeaderSearchGroup(heading, items) {
@@ -3306,11 +3329,11 @@ function buildHeaderSearchRow(kind, item) {
 
   const row = document.createElement('a');
   row.className = 'header-search-dropdown-row';
-  row.href = meta.spotifyUrl || '#';
+  row.href = httpsUrl(meta.spotifyUrl);
   row.target = '_blank';
   row.rel = 'noopener noreferrer';
   row.innerHTML = `
-    <img class="header-search-dropdown-cover" src="${escapeHtml(meta.cover)}" alt="" loading="lazy">
+    <img class="header-search-dropdown-cover" src="${attrUrl(meta.cover, PLACEHOLDER_IMG)}" alt="" loading="lazy">
     <div class="header-search-dropdown-info">
       <span class="header-search-dropdown-title">${escapeHtml(meta.title)}</span>
       <span class="header-search-dropdown-subtitle">${escapeHtml(meta.subtitle)}</span>
@@ -3326,7 +3349,6 @@ function openHeaderSearchDropdown() {
   document.getElementById('header-search-wrapper').classList.add('search-active');
   document.getElementById('header-search-dropdown').classList.add('visible');
   document.getElementById('header-search-backdrop').classList.add('visible');
-  document.getElementById('header-search-input').setAttribute('aria-expanded', 'true');
 }
 
 function closeHeaderSearchDropdown() {
@@ -3337,11 +3359,9 @@ function closeHeaderSearchDropdown() {
   const wrapper = document.getElementById('header-search-wrapper');
   const dropdown = document.getElementById('header-search-dropdown');
   const backdrop = document.getElementById('header-search-backdrop');
-  const input = document.getElementById('header-search-input');
   if (wrapper) wrapper.classList.remove('search-active');
   if (dropdown) dropdown.classList.remove('visible');
   if (backdrop) backdrop.classList.remove('visible');
-  if (input) input.setAttribute('aria-expanded', 'false');
 }
 
 // Enter (or the dropdown's footer row) hands the query off to the full
@@ -3532,7 +3552,7 @@ function updateSearchVisibility() {
 // full-page result cards and the header dropdown's compact rows.
 function getSearchResultMeta(kind, item) {
   if (!item) return null;
-  const placeholder = 'https://via.placeholder.com/150';
+  const placeholder = PLACEHOLDER_IMG;
 
   if (kind === 'track') {
     return {
@@ -3597,7 +3617,7 @@ function buildSearchResultCard(kind, item) {
   div.className = 'track-card';
   div.innerHTML = `
     <div class="track-card-cover-container">
-      <img class="track-card-cover" src="${escapeHtml(cover)}" alt="${escapeHtml(title)}" loading="lazy">
+      <img class="track-card-cover" src="${attrUrl(cover, PLACEHOLDER_IMG)}" alt="${escapeHtml(title)}" loading="lazy">
       <div class="track-card-play-overlay">
         <button type="button" class="btn-play-preview btn-search-play" title="Play on Spotify" aria-label="Play &quot;${escapeHtml(title)}&quot; on Spotify">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
@@ -3605,7 +3625,7 @@ function buildSearchResultCard(kind, item) {
       </div>
     </div>
     <div class="track-card-details">
-      <a class="track-card-title" href="${escapeHtml(spotifyUrl || '#')}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(title)}">${escapeHtml(title)}</a>
+      <a class="track-card-title" href="${attrUrl(spotifyUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(title)}">${escapeHtml(title)}</a>
       <span class="track-card-artist" title="${escapeHtml(subtitle)}">${escapeHtml(subtitle)}</span>
       ${thirdLine ? `<span class="track-card-album" title="${escapeHtml(thirdLine)}">${escapeHtml(thirdLine)}</span>` : ''}
       <div class="track-card-meta">
@@ -3658,8 +3678,30 @@ function hideSearchPlayError() {
   if (el) el.classList.add('hidden');
 }
 
+// Escapes text for use inside HTML element content or a quoted attribute.
+// Every Spotify-provided string interpolated into innerHTML must go through
+// this (or be set with textContent / setAttribute instead).
 function escapeHtml(str) {
-  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// Neutral local stand-in for missing artwork (no third-party image host).
+const PLACEHOLDER_IMG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'%3E%3Crect width='1' height='1' fill='%23131119'/%3E%3C/svg%3E";
+
+// Only https: URLs are ever used for links, images or audio, so a hostile or
+// corrupted value can't smuggle in a javascript:/data: URL.
+function httpsUrl(url, fallback = '#') {
+  return typeof url === 'string' && /^https:\/\//i.test(url) ? url : fallback;
+}
+
+// Ready to drop into a quoted HTML attribute.
+function attrUrl(url, fallback = '#') {
+  return escapeHtml(httpsUrl(url, fallback));
 }
 
 // PWA install and service-worker updates live in pwa.js (shell caching: sw.js).

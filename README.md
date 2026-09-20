@@ -72,7 +72,17 @@ The cache is named after `BUILD_ID` in `public/sw.js`, which the Pages workflow 
 - The manifest `id` is fixed at `/spotify-stats-app/`; if you fork under another repository name, change it to match.
 
 ### Tests
-`npm test` runs dependency-free checks (Node's built-in runner) over the snapshot module and the service-worker/manifest invariants a deploy relies on.
+- `npm test`: dependency-free unit checks (Node's built-in runner) over the snapshot module and the service-worker/manifest invariants a deploy relies on. Also run by CI before every deploy.
+- `npm run test:e2e`: browser regression suite (Chrome, mocked Spotify, so no account or tokens involved). Needs `npm install` first. It covers auth, navigation, ranges, search, playback, errors, offline, install, updates, accessibility (axe), the CSP and a hostile-data XSS check. See [docs/regression-matrix.md](docs/regression-matrix.md).
+- Manual checks before a release: [docs/release-checklist.md](docs/release-checklist.md). Security notes and residual risks: [docs/security-and-privacy.md](docs/security-and-privacy.md).
+
+### Known limitations
+- Browser-held OAuth tokens can't be hidden from page script; see the security notes.
+- Sign-in is limited to accounts allow-listed on your Spotify app (Development Mode).
+- Playback controls need Spotify Premium and an active device.
+- Firefox desktop can't install the app; iOS installs only via Safari's Share menu.
+- A meta-tag CSP can't set `frame-ancestors`.
+- Artwork isn't cached for offline use; the offline copy covers top tracks/artists (6 months) and recent plays only.
 
 ## Spotify API Setup Guide
 
