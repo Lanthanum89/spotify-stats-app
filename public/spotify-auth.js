@@ -119,34 +119,74 @@
     storeTokens(await response.json());
   }
 
-  async function refreshAccessToken() {
+  // A failure that says nothing about whether the credentials are still good:
+  // no connection, a timeout, Spotify 5xx, or a 429. Callers must NOT log the
+  // user out over one of these.
+  function createTransientError(message, extra) {
+    return Object.assign(new Error(message), { isNetworkError: true }, extra);
+  }
+
+  function isOffline() {
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+  }
+
+  // Fetches the token endpoint, turning a thrown fetch (offline, DNS, CORS
+  // failure) into a transient error rather than an opaque TypeError.
+  async function postToTokenEndpoint(body) {
+    try {
+      return await fetch(TOKEN_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body
+      });
+    } catch (err) {
+      throw createTransientError('Could not reach Spotify', { offline: isOffline() });
+    }
+  }
+
+  // Several requests can find the access token expired at the same moment
+  // (the dashboard fires four in parallel) — share one refresh between them.
+  // Spotify may rotate the refresh token, so a second concurrent refresh with
+  // the old one could otherwise be rejected.
+  let refreshInFlight = null;
+
+  function refreshAccessToken() {
+    if (!refreshInFlight) {
+      refreshInFlight = doRefreshAccessToken().finally(() => { refreshInFlight = null; });
+    }
+    return refreshInFlight;
+  }
+
+  async function doRefreshAccessToken() {
     const refreshToken = localStorage.getItem(STORAGE_KEYS.refreshToken);
     if (!refreshToken) {
-      throw new Error('No refresh token available');
+      throw new SpotifyUnauthorizedError('No refresh token available');
     }
 
-    const body = new URLSearchParams({
+    const response = await postToTokenEndpoint(new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
       client_id: getClientId()
-    });
-
-    const response = await fetch(TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body
-    });
+    }));
 
     if (!response.ok) {
-      throw new Error(`Token refresh failed: ${response.status}`);
+      // 400/401 (invalid_grant) means Spotify has genuinely revoked or
+      // rejected this refresh token. Anything else is Spotify being
+      // unavailable or rate limiting us — the credentials may be fine.
+      if (response.status === 400 || response.status === 401) {
+        throw new SpotifyUnauthorizedError('Spotify rejected the refresh token');
+      }
+      throw createTransientError(`Token refresh failed: ${response.status}`, { status: response.status });
     }
 
     storeTokens(await response.json());
     return localStorage.getItem(STORAGE_KEYS.accessToken);
   }
 
-  // Returns a valid access token, refreshing first if it's near expiry. Returns
-  // null (and clears storage) if there's nothing usable — caller should show login.
+  // Returns a valid access token, refreshing first if it's near expiry.
+  // Returns null (and clears storage) only when there is nothing usable and
+  // the user must sign in again. A transient failure while refreshing throws
+  // instead, leaving the stored credentials intact.
   async function getAccessToken() {
     const accessToken = localStorage.getItem(STORAGE_KEYS.accessToken);
     const expiresAt = Number(localStorage.getItem(STORAGE_KEYS.expiresAt) || 0);
@@ -160,9 +200,11 @@
     try {
       return await refreshAccessToken();
     } catch (err) {
-      console.error('Failed to refresh Spotify access token:', err);
-      clearTokens();
-      return null;
+      if (err.isUnauthorized) {
+        clearTokens();
+        return null;
+      }
+      throw err;
     }
   }
 
@@ -219,6 +261,12 @@
   // if present, is JSON-encoded (e.g. { uris: [...] } to start playback of
   // specific tracks, or { context_uri } for an album/artist/playlist).
   async function apiRequest(path, options = {}) {
+    // Don't fire a request that can only fail — and don't let the failure be
+    // mistaken for anything to do with the account.
+    if (isOffline()) {
+      throw createTransientError('You are offline', { offline: true });
+    }
+
     const token = await getAccessToken();
     if (!token) {
       throw new SpotifyUnauthorizedError('Not authenticated with Spotify');
@@ -231,11 +279,16 @@
       body = JSON.stringify(options.body);
     }
 
-    const response = await fetch(`${API_BASE}${path}`, {
-      method: options.method || 'GET',
-      headers,
-      body
-    });
+    let response;
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        method: options.method || 'GET',
+        headers,
+        body
+      });
+    } catch (err) {
+      throw createTransientError('Could not reach Spotify', { offline: isOffline() });
+    }
 
     if (response.status === 401) {
       clearTokens();
@@ -243,9 +296,16 @@
     }
 
     if (!response.ok) {
-      const errorText = await response.text();
-      const error = new Error(`API error: ${response.status} - ${errorText}`);
+      // Status only — the response body can echo request details, so it is
+      // deliberately not put in the error message (which gets logged).
+      const error = new Error(`API error: ${response.status}`);
       error.status = response.status;
+      if (response.status === 429) {
+        // Retry-After is in seconds; it is only readable cross-origin if
+        // Spotify lists it in Access-Control-Expose-Headers, so it may be null.
+        const seconds = Number(response.headers.get('Retry-After'));
+        error.retryAfterMs = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : null;
+      }
       throw error;
     }
 

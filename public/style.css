@@ -1428,3 +1428,139 @@ body {
   .header-search-backdrop, .header-search-dropdown { transition: none; }
 }
 
+
+/* ==========================================================================
+   PWA / OFFLINE — notices, install action, freshness label, sign-in trust copy
+   ========================================================================== */
+
+/* Status + update notices. Sticky at the top of the scrolling main column:
+   in flow, so they push content down instead of covering it, and clear of
+   the mobile top bar and drawer (both outside .main-content). */
+.app-notices {
+  --notice-warn: #e6b866;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+.app-notices::before {
+  /* Solid backing so scrolled content doesn't show between stacked notices. */
+  background: var(--bg);
+  content: "";
+  inset: -34px -8px -6px;
+  position: absolute;
+  z-index: -1;
+}
+.auth-body .app-notices { margin: 18px 0 0; position: static; }
+.auth-body .app-notices::before { display: none; }
+
+.notice {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-left-width: 3px;
+  border-radius: 8px;
+  color: var(--text);
+  display: flex;
+  font-size: 0.82rem;
+  gap: 10px;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+.notice-icon { display: inline-flex; flex-shrink: 0; }
+.notice-text { flex: 1; margin: 0; min-width: 0; }
+.notice-label { font: 600 0.75rem var(--mono); letter-spacing: 0.04em; margin-right: 4px; text-transform: uppercase; }
+.notice-actions { align-items: center; display: flex; flex-shrink: 0; gap: 8px; }
+.notice .btn-sm { padding: 6px 12px; }
+.notice-dismiss {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  min-height: 32px;
+  min-width: 32px;
+}
+.notice-dismiss:hover { color: var(--text); }
+.notice-warn { border-left-color: var(--notice-warn, #e6b866); }
+.notice-warn .notice-icon, .notice-warn .notice-label { color: var(--notice-warn, #e6b866); }
+.notice-ok { border-left-color: var(--green); }
+.notice-ok .notice-icon, .notice-ok .notice-label { color: var(--green); }
+.notice-update { border-left-color: var(--accent); }
+.notice-update .notice-icon, .notice-update .notice-label { color: var(--accent-bright); }
+.notice button:focus-visible,
+.install-btn:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+
+@media (max-width: 560px) {
+  .notice { align-items: flex-start; flex-wrap: wrap; }
+  .notice-text { flex-basis: calc(100% - 40px); }
+  .notice-actions { margin-left: 28px; }
+}
+
+/* Header: title + data-freshness label */
+.content-title-group { min-width: 0; }
+.data-freshness { color: var(--dim); font: 0.72rem/1.4 var(--mono); margin: 4px 0 0; }
+.data-freshness.is-stale { color: #e6b866; }
+
+/* Install action — quiet, secondary; styled like a nav item but lower-key */
+.install-slot { display: flex; flex-direction: column; gap: 6px; }
+.install-btn {
+  align-items: center;
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  font: 500 0.75rem var(--mono);
+  gap: 10px;
+  letter-spacing: 0.045em;
+  padding: 9px 12px;
+  text-transform: uppercase;
+  transition: var(--transition);
+  width: 100%;
+}
+.install-btn:hover { border-color: var(--accent); color: var(--accent-bright); }
+.install-hint { color: var(--muted); font-size: 0.78rem; line-height: 1.5; margin: 0; padding: 0 4px; }
+.sidebar.collapsed .install-btn { justify-content: center; padding: 10px; }
+.sidebar.collapsed .install-btn span,
+.sidebar.collapsed .install-hint { display: none; }
+.mobile-nav-drawer .install-slot { margin-top: 10px; }
+.mobile-nav-drawer .install-btn { padding: 12px 14px; }
+
+/* Sign-in trust copy — deliberately secondary to the Connect button */
+.auth-trust {
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  list-style: none;
+  margin: 24px 0 0;
+  padding: 16px 0 0;
+}
+.auth-trust li { padding-left: 16px; position: relative; }
+.auth-trust li + li { margin-top: 8px; }
+.auth-trust li::before { color: var(--accent); content: "\2022"; left: 2px; position: absolute; }
+
+/* Tab that has nothing usable in the offline copy */
+.offline-note {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  padding: 24px;
+}
+.offline-note strong { color: var(--text); display: block; font: 600 0.9rem var(--mono); margin-bottom: 6px; }
+.offline-note p { margin: 0; }
+.tab-pane.is-offline-unavailable > :not(.offline-note) { display: none !important; }
+
+/* Local (card-level) load errors */
+.local-error { color: var(--muted); font: 0.75rem/1.6 var(--mono); padding: 24px; text-align: center; }
+.local-error .btn { margin-top: 12px; }
