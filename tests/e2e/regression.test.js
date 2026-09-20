@@ -337,6 +337,53 @@ test('security: hostile Spotify strings and URLs never execute or inject markup 
   await context.close();
 });
 
+test('security: legitimate https links and images survive sanitising; only https audio is ever played', async () => {
+  const { context, page } = await session();
+  await goTab(page, 'tracks');
+  await page.click('.view-toggle-btn[data-view="grid"]');
+  await page.waitForTimeout(300);
+  const links = await page.evaluate(() => [...document.querySelectorAll('#top-tracks-grid a[href], #top-tracks-grid img')].map((n) => n.getAttribute('href') || n.getAttribute('src')));
+  assert.ok(links.length > 0);
+  assert.ok(links.every((u) => /^https:\/\/(open\.spotify\.com|i\.scdn\.co)\//.test(u)), links.join(' '));
+  await context.close();
+
+  const evil = await session({ evil: true });
+  await evil.page.evaluate(() => { window.__audio = []; window.Audio = function (src) { window.__audio.push(src); this.play = () => Promise.resolve(); this.pause = () => {}; this.addEventListener = () => {}; }; });
+  await goTab(evil.page, 'tracks');
+  await evil.page.click('.view-toggle-btn[data-view="grid"]');
+  await evil.page.waitForTimeout(300);
+  for (const btn of await evil.page.locator('#top-tracks-grid button[data-preview-url]').all()) await btn.click({ force: true });
+  assert.deepEqual(await evil.page.evaluate(() => window.__audio), [], 'no Audio created for a javascript: preview URL');
+  await evil.context.close();
+
+  const good = await session();
+  await good.page.evaluate(() => { window.__audio = []; window.Audio = function (src) { window.__audio.push(src); this.play = () => Promise.resolve(); this.pause = () => {}; this.addEventListener = () => {}; }; });
+  await goTab(good.page, 'tracks');
+  await good.page.click('.view-toggle-btn[data-view="grid"]');
+  await good.page.waitForTimeout(300);
+  await good.page.locator('#top-tracks-grid button[data-preview-url]').first().click({ force: true });
+  assert.deepEqual(await good.page.evaluate(() => window.__audio), ['https://p.scdn.co/preview.mp3']);
+  await good.context.close();
+});
+
+test('accessibility: closed header dropdown is out of the tab order; quick results are announced once per query', async () => {
+  const { context, page } = await session();
+  await goTab(page, 'tracks');
+  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('header-search-dropdown')).visibility), 'hidden');
+  await page.evaluate(() => {
+    window.__announcements = [];
+    new MutationObserver(() => {
+      const text = document.getElementById('a11y-status').textContent;
+      if (/quick result|No quick matches/.test(text)) window.__announcements.push(text);
+    }).observe(document.getElementById('a11y-status'), { childList: true, characterData: true, subtree: true });
+  });
+  await page.fill('#header-search-input', 'anything');
+  await page.waitForTimeout(2500);
+  assert.equal(await page.evaluate(() => window.__announcements.length), 1, 'announced once');
+  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('header-search-dropdown')).visibility), 'visible');
+  await context.close();
+});
+
 test('hygiene: no duplicate ids, no inline handlers, dashboard load makes each request once', async () => {
   const { context, page, mock } = await session({ signedIn: false });
   await seedTokens(page);

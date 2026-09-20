@@ -243,6 +243,7 @@ function clearAccountState() {
   });
   clearTimeout(searchDebounceTimer);
   clearTimeout(headerSearchDebounceTimer);
+  clearTimeout(headerSearchAnnounceTimer);
   hideAllControlErrors();
   hideSearchPlayError();
   miniPlayerControlPending = false;
@@ -1267,6 +1268,8 @@ async function pollNowPlaying() {
   if (nowPlayingConsecutiveFailures >= NOW_PLAYING_FAILURE_THRESHOLD) {
     nowPlayingBackoffTicks = (nowPlayingBackoffTicks + 1) % NOW_PLAYING_BACKOFF_EVERY;
     if (nowPlayingBackoffTicks !== 0) return;
+  } else {
+    nowPlayingBackoffTicks = 0;
   }
 
   let response;
@@ -2374,7 +2377,10 @@ function renderTracksGrid(container, items, type) {
 }
 
 // TOGGLE AUDIO PREVIEW PLAYBACK
-function toggleAudioPreview(previewUrl, button, card) {
+function toggleAudioPreview(rawPreviewUrl, button, card) {
+  // Validate at the playback boundary, whatever the caller passed in.
+  const previewUrl = httpsUrl(rawPreviewUrl, null);
+  if (!previewUrl) return;
   const playIcon = button.querySelector('.play-icon');
   const pauseIcon = button.querySelector('.pause-icon');
   const eq = card.querySelector('.playing-equalizer');
@@ -3128,6 +3134,7 @@ let headerSearchOpen = false;
 let headerSearchLocalResults = { tracks: [], artists: [] };
 let headerSearchLiveResults = { tracks: [], artists: [], albums: [], playlists: [] };
 let headerSearchDebounceTimer = null;
+let headerSearchAnnounceTimer = null;
 let headerSearchRequestSeq = 0;
 
 function initSearchTab() {
@@ -3288,8 +3295,13 @@ function renderHeaderSearchDropdown(query) {
   footer.addEventListener('click', commitHeaderSearch);
   dropdown.appendChild(footer);
 
+  // The dropdown re-renders for the local matches and again when the live
+  // results land; announce once, after it settles.
   const total = localItems.length + liveItems.length;
-  SoundTracksNotices.announce(total > 0 ? `${total} quick result${total !== 1 ? 's' : ''}. Press Enter to see all.` : 'No quick matches.');
+  clearTimeout(headerSearchAnnounceTimer);
+  headerSearchAnnounceTimer = setTimeout(() => {
+    SoundTracksNotices.announce(total > 0 ? `${total} quick result${total !== 1 ? 's' : ''}. Press Enter to see all.` : 'No quick matches.');
+  }, 800);
 }
 
 function buildHeaderSearchGroup(heading, items) {
@@ -3684,7 +3696,7 @@ const PLACEHOLDER_IMG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000
 // Only https: URLs are ever used for links, images or audio, so a hostile or
 // corrupted value can't smuggle in a javascript:/data: URL.
 function httpsUrl(url, fallback = '#') {
-  return typeof url === 'string' && /^https:///i.test(url) ? url : fallback;
+  return typeof url === 'string' && /^https:\/\//i.test(url) ? url : fallback;
 }
 
 // Ready to drop into a quoted HTML attribute.

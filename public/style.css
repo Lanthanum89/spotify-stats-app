@@ -1352,9 +1352,12 @@ body {
   opacity: 0;
   transform: translateY(-6px);
   pointer-events: none;
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  /* visibility takes the closed dropdown's links out of the tab order and the
+     accessibility tree once the fade finishes */
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
 }
-.header-search-dropdown.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.header-search-dropdown.visible { opacity: 1; transform: translateY(0); pointer-events: auto; visibility: visible; transition-delay: 0s; }
 
 .header-search-dropdown-group + .header-search-dropdown-group { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .header-search-dropdown-heading { color: var(--dim); font: 600 0.68rem var(--mono); letter-spacing: 0.08em; padding: 4px 8px 6px; text-transform: uppercase; }

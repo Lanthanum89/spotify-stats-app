@@ -41,7 +41,7 @@ function makeData(evil) {
   const url = (u) => (evil ? EVIL_URL : u);
   const images = [{ url: evil ? EVIL_URL : 'https://i.scdn.co/image/x' }];
   const track = (n) => ({
-    id: `t${n}`, name: name(n, 'Track'), duration_ms: 200000, popularity: 60, preview_url: evil ? EVIL_URL : null,
+    id: `t${n}`, name: name(n, 'Track'), duration_ms: 200000, popularity: 60, preview_url: evil ? EVIL_URL : 'https://p.scdn.co/preview.mp3',
     external_urls: { spotify: url(`https://open.spotify.com/track/t${n}`) }, artists: [{ id: 'a', name: name('', 'Artist') }],
     album: { name: name('', 'Album'), images, external_urls: { spotify: url('https://open.spotify.com/album/x') }, release_date: '2020-01-01', total_tracks: 3 }
   });
